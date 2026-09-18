@@ -1,0 +1,53 @@
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Editors ---
+.vscode/
+.idea/
+*.swp
+*~
+
+# --- Node ---
+node_modules/
+dist/
+build/
+.next/
+out/
+*.log
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- Big artifacts (never commit these) ---
+*.mp4
+*.mov
+*.zip
+*.tar.gz
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.sqlite
+*.db
+data/raw/
+models/
