@@ -1,0 +1,21 @@
+# Keeps dev on the same commit as main after every release.
+# PRs go feature → dev and dev → main only, never main → dev. When a dev → main merge lands on main,
+# this fast-forwards dev to that commit. It never forces: if dev already has newer work, the push is
+# refused and this job fails, and the next dev → main release brings the two together again.
+name: sync dev
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fast-forward-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git push origin HEAD:refs/heads/dev
