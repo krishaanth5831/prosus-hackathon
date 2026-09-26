@@ -5,7 +5,7 @@
 Apify (collection) → n8n Cloud (all logic) → Supabase Postgres → Google Sheet (sortie plan) → Telegram (human gate) → Leaflet map on Vercel.
 What and why: `docs/prd.md` · how: `docs/plan.md` · contracts: `shared/contracts/CONTRACTS.md` · slices: `docs/TASKS.md` · rules for Claude Code: `CLAUDE.md`.
 
-**Live map:** _MAP_URL (set after deploy)_ · **Evidence:** [`docs/evidence.md`](docs/evidence.md) · **Video script:** [`docs/video-script.md`](docs/video-script.md)
+**Live map:** https://airguard-map.vercel.app (`?fixture=1` for the contract fixtures) · **Evidence:** [`docs/evidence.md`](docs/evidence.md) · **Video script:** [`docs/video-script.md`](docs/video-script.md)
 
 ## AirGuard in one minute (for judges)
 
