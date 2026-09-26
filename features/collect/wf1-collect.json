@@ -36,6 +36,12 @@
               "name": "apify_api",
               "value": "https://api.apify.com/v2",
               "type": "string"
+            },
+            {
+              "id": "e6477de0-b832-41fc-90d9-a7cdc9be2433",
+              "name": "actor_id",
+              "value": "jy8UIKwgtSEdMN00I",
+              "type": "string"
             }
           ]
         },
@@ -48,11 +54,11 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        440,
+        1100,
         300
       ],
       "parameters": {
-        "url": "={{ $('Config').first().json.apify_api }}/key-value-stores/{{ $('Apify run succeeded').first().json.body.resource.defaultKeyValueStoreId }}/records/RUN_META",
+        "url": "={{ $('Config').first().json.apify_api }}/key-value-stores/{{ $('Check run').first().json.kv_id }}/records/RUN_META",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {}
@@ -69,12 +75,12 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        660,
+        1320,
         300
       ],
       "alwaysOutputData": true,
       "parameters": {
-        "url": "={{ $('Config').first().json.apify_api }}/datasets/{{ $('Apify run succeeded').first().json.body.resource.defaultDatasetId }}/items?clean=true",
+        "url": "={{ $('Config').first().json.apify_api }}/datasets/{{ $('Check run').first().json.dataset_id }}/items?clean=true",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {}
@@ -91,7 +97,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        880,
+        1540,
         300
       ],
       "alwaysOutputData": true,
@@ -105,7 +111,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1100,
+        1760,
         300
       ],
       "parameters": {
@@ -139,7 +145,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        1320,
+        1980,
         200
       ],
       "parameters": {
@@ -173,7 +179,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1540,
+        2200,
         100
       ],
       "executeOnce": true,
@@ -208,7 +214,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1760,
+        2420,
         100
       ],
       "parameters": {
@@ -250,7 +256,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        1980,
+        2640,
         100
       ],
       "parameters": {
@@ -284,7 +290,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1320,
+        1980,
         420
       ],
       "parameters": {
@@ -326,7 +332,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        1540,
+        2200,
         420
       ],
       "parameters": {
@@ -361,7 +367,7 @@
       "typeVersion": 1.2,
       "executeOnce": true,
       "position": [
-        1760,
+        2420,
         320
       ],
       "parameters": {
@@ -372,6 +378,156 @@
           "cachedResultName": "AirGuard WF2 Detect"
         },
         "options": {}
+      }
+    },
+    {
+      "id": "0b13d44a-95b6-4489-8fd2-39b7e76f2938",
+      "name": "Verify run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "url": "={{ $('Config').first().json.apify_api }}/actor-runs/{{ encodeURIComponent(String((($('Apify run succeeded').first().json.body || {}).resource || {}).id || 'missing')) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "AirGuard Apify"
+        }
+      }
+    },
+    {
+      "id": "9ac844dc-0f1c-4558-85c8-b7d6419853f4",
+      "name": "Check run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Owner: Person A (see CLAUDE.md)\n// Pure function, pasted into the WF1 Code node \"Check run\". The webhook that starts WF1 is public and\n// unauthenticated, so WF1 asks Apify about the run itself (GET /actor-runs/{id} with our token) and takes\n// the dataset and key-value store only from that answer, never from the webhook body.\n\nconst MAX_AGE_MS = 15 * 60 * 1000;   // the cell_status window: an older run is a replay, and stale anyway\n\n// checkRun(runId from the webhook, answer = body of GET /actor-runs/{runId}, our actor id, now)\n//   -> { ok: true, run_id, dataset_id, kv_id, reason } | { ok: false, run_id, reason }\nfunction checkRun(runId, answer, actorId, now = Date.now()) {\n  const id = String(runId ?? '').replace(/[^A-Za-z0-9]/g, '').slice(0, 20) || 'without an id';   // only letters and digits reach the log\n  const run = answer && typeof answer.data === 'object' && answer.data !== null ? answer.data : null;\n  let why = null;\n  if (!run || run.id !== runId) why = `Apify does not confirm run ${id}${answer?.error?.type ? ` (${answer.error.type})` : ''}`;\n  else if (run.actId !== actorId) why = `run ${id} is not a run of the AirGuard actor`;\n  else if (run.status !== 'SUCCEEDED') why = `run ${id} is ${run.status}, not SUCCEEDED`;\n  else if (!(now - Date.parse(run.finishedAt) < MAX_AGE_MS)) why = `run ${id} finished ${run.finishedAt}, more than 15 min ago`;\n  if (why) return { ok: false, run_id: id, reason: `webhook ignored: ${why}` };\n  return { ok: true, run_id: run.id, dataset_id: run.defaultDatasetId, kv_id: run.defaultKeyValueStoreId, reason: 'run confirmed by Apify' };\n}\n\nif (typeof module !== 'undefined') module.exports = { checkRun };\n// n8n glue (Code node, \"Run once for all items\"):\n// return [{ json: checkRun($('Apify run succeeded').first().json.body?.resource?.id, $input.first().json, $('Config').first().json.actor_id) }];\nreturn [{ json: checkRun($('Apify run succeeded').first().json.body?.resource?.id, $input.first().json, $('Config').first().json.actor_id) }];\n"
+      }
+    },
+    {
+      "id": "8ddc2ef4-f05b-4c09-be40-e07ecbbb51fb",
+      "name": "Verified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "46d8145c-da69-4875-a017-da75cf972e50",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e6a0ddde-5185-475b-95a3-f7c6992a8b8b",
+      "name": "Reject line",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1100,
+        520
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "947f14ca-0a37-4955-8cda-2324c0744d31",
+              "name": "workflow",
+              "value": "WF1",
+              "type": "string"
+            },
+            {
+              "id": "2392ad66-1a4d-4887-9825-8ab60ebb0df1",
+              "name": "action",
+              "value": "REJECT WEBHOOK",
+              "type": "string"
+            },
+            {
+              "id": "acafdac7-5992-400b-bf6d-51e4cfadbebe",
+              "name": "reason",
+              "value": "={{ $json.reason }}",
+              "type": "string"
+            },
+            {
+              "id": "8a1ed730-b56b-4340-ac88-83d46193a460",
+              "name": "outcome",
+              "value": "no observations written",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b4a10350-23d4-4930-914c-85bcba16bad4",
+      "name": "Log reject",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1320,
+        520
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
       }
     }
   ],
@@ -391,7 +547,7 @@
       "main": [
         [
           {
-            "node": "Get RUN_META",
+            "node": "Verify run",
             "type": "main",
             "index": 0
           }
@@ -504,6 +660,57 @@
         [
           {
             "node": "Execute WF2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify run": {
+      "main": [
+        [
+          {
+            "node": "Check run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check run": {
+      "main": [
+        [
+          {
+            "node": "Verified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verified?": {
+      "main": [
+        [
+          {
+            "node": "Get RUN_META",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject line",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject line": {
+      "main": [
+        [
+          {
+            "node": "Log reject",
             "type": "main",
             "index": 0
           }
