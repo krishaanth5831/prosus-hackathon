@@ -1,0 +1,517 @@
+{
+  "name": "AirGuard WF1 Collect",
+  "nodes": [
+    {
+      "id": "47b84926-a1a0-4ddb-8173-68bf2b538677",
+      "name": "Apify run succeeded",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "d30de3e5-96a8-457b-9d48-3eefa91a075b",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "airguard-apify",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "b24c7f08-fe4b-4528-a057-806655823464",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8a156fd9-0d4c-43c4-8fe8-79f50100a124",
+              "name": "apify_api",
+              "value": "https://api.apify.com/v2",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9a0f6f5f-9fea-47dc-9ef7-094b24d583de",
+      "name": "Get RUN_META",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "url": "={{ $('Config').first().json.apify_api }}/key-value-stores/{{ $('Apify run succeeded').first().json.body.resource.defaultKeyValueStoreId }}/records/RUN_META",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "AirGuard Apify"
+        }
+      }
+    },
+    {
+      "id": "aaf0e28c-e920-4c6d-889c-99de14db11ae",
+      "name": "Get dataset items",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "url": "={{ $('Config').first().json.apify_api }}/datasets/{{ $('Apify run succeeded').first().json.body.resource.defaultDatasetId }}/items?clean=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "AirGuard Apify"
+        }
+      }
+    },
+    {
+      "id": "5a1e0520-506c-4235-89f1-f565447396cb",
+      "name": "binCells",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "jsCode": "// Owner: Person A (see CLAUDE.md)\n// Pure function, pasted into the WF1 Code node. Spec: docs/plan.md §5.2, contracts C1 + C2.\n\nfunction cellId(lat, lon, size = 0.5) {\n  return `${(Math.floor(lat / size) * size).toFixed(1)}_${(Math.floor(lon / size) * size).toFixed(1)}`;\n}\n\nfunction binCells(rows) {\n  const cells = new Map();\n  for (const a of rows) {\n    if (a.empty || a.lat == null || a.lon == null) continue;\n    if (a.nic == null && a.nac_p == null) continue;            // no integrity data → not a sensor\n    const id = cellId(a.lat, a.lon);\n    const c = cells.get(id) ?? { ts: a.ts, source: a.source, cell_id: id, n_total: 0, n_degraded: 0, n_spoof: 0 };\n    c.n_total++;\n    if ((a.nic ?? 99) < 7 || (a.nac_p ?? 99) < 8) c.n_degraded++;\n    if (a.alt_geom != null && a.alt_baro != null && Math.abs(a.alt_geom - a.alt_baro) > 1500) c.n_spoof++;\n    cells.set(id, c);\n  }\n  return [...cells.values()].map((c) => ({ ...c, ratio: c.n_degraded / c.n_total }));\n}\n\nif (typeof module !== 'undefined') module.exports = { binCells, cellId };\n// n8n glue (Code node, \"Run once for all items\"):\n// return binCells($input.all().map(i => i.json)).map(json => ({ json }));\nreturn binCells($input.all().map(i => i.json)).map(json => ({ json }));\n"
+      }
+    },
+    {
+      "id": "bee850b9-edbc-4e74-8e9a-e9b892762643",
+      "name": "Any cells?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "99582558-e4d0-4034-8c8e-28bdea0a0a81",
+              "leftValue": "={{ $json.cell_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6dfb0dbd-0276-4a5e-b4eb-de21cbdda005",
+      "name": "Insert observations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1320,
+        200
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "observations"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "6b4640dd-b53a-4638-b8ea-891c001045ce",
+      "name": "Failover?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        100
+      ],
+      "executeOnce": true,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2e450f94-57ab-41b3-ad0c-e16c1786fb30",
+              "leftValue": "={{ $('Get RUN_META').first().json.failover }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b4d3ee1c-3bd6-4962-b11e-5287354f11ac",
+      "name": "Failover line",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1760,
+        100
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "642c412f-eeb5-44c5-bf0d-5e2f593d678d",
+              "name": "workflow",
+              "value": "WF1",
+              "type": "string"
+            },
+            {
+              "id": "cf861234-2e50-4e0d-bb22-7b77f34ba220",
+              "name": "action",
+              "value": "={{ 'SWITCH SOURCE TO ' + $('Get RUN_META').first().json.source.toUpperCase() }}",
+              "type": "string"
+            },
+            {
+              "id": "ab6311a4-c3e6-4af7-9931-78e446f3da93",
+              "name": "reason",
+              "value": "={{ 'primary adsb.lol unavailable (' + ($('Get RUN_META').first().json.errors.join('; ') || 'no aircraft returned') + '), switched to ' + $('Get RUN_META').first().json.source }}",
+              "type": "string"
+            },
+            {
+              "id": "ce6751a7-0404-4c57-9761-9bb774f7a982",
+              "name": "outcome",
+              "value": "={{ $('Get RUN_META').first().json.aircraft + ' aircraft from ' + $('Get RUN_META').first().json.source + ', ' + $('binCells').all().length + ' cells written' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d6e530d4-9d00-4ddb-aaf3-477230fdc359",
+      "name": "Log failover",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1980,
+        100
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "f61f8f5d-ddac-4098-b9a3-72f8dba0088e",
+      "name": "No data line",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1320,
+        420
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0fe2a7d2-54c6-475a-9894-6558c53d0765",
+              "name": "workflow",
+              "value": "WF1",
+              "type": "string"
+            },
+            {
+              "id": "36837cc6-4f2d-4f50-b233-f1d1c89132f9",
+              "name": "action",
+              "value": "FLAG NO DATA",
+              "type": "string"
+            },
+            {
+              "id": "e913d236-5e3d-43f3-897f-81bd3ea02945",
+              "name": "reason",
+              "value": "={{ 'no data from any source: every cell UNKNOWN (' + ($('Get RUN_META').first().json.errors.join('; ') || ($('Get RUN_META').first().json.aircraft ? $('Get RUN_META').first().json.aircraft + ' aircraft, none with NIC/NACp' : 'sources answered with 0 aircraft')) + ')' }}",
+              "type": "string"
+            },
+            {
+              "id": "6e00d884-156b-4e90-92bb-48708eb84af9",
+              "name": "outcome",
+              "value": "no observations written this cycle",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "97d9d69f-0d20-4f70-b91b-10c70646e7de",
+      "name": "Log no data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1540,
+        420
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "b6497c11-5b4c-4bb2-ba6f-c54270c58e2d",
+      "name": "Execute WF2",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "executeOnce": true,
+      "position": [
+        1760,
+        320
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "KPCB3810HyAh8FUm",
+          "cachedResultName": "AirGuard WF2 Detect"
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Apify run succeeded": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get RUN_META",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get RUN_META": {
+      "main": [
+        [
+          {
+            "node": "Get dataset items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get dataset items": {
+      "main": [
+        [
+          {
+            "node": "binCells",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "binCells": {
+      "main": [
+        [
+          {
+            "node": "Any cells?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any cells?": {
+      "main": [
+        [
+          {
+            "node": "Insert observations",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No data line",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert observations": {
+      "main": [
+        [
+          {
+            "node": "Failover?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute WF2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failover?": {
+      "main": [
+        [
+          {
+            "node": "Failover line",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Failover line": {
+      "main": [
+        [
+          {
+            "node": "Log failover",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No data line": {
+      "main": [
+        [
+          {
+            "node": "Log no data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log no data": {
+      "main": [
+        [
+          {
+            "node": "Execute WF2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

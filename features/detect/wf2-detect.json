@@ -1,0 +1,323 @@
+{
+  "name": "AirGuard WF2 Detect",
+  "nodes": [
+    {
+      "id": "d384fdd4-46f5-44ab-9339-840613150044",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "ec557f6e-416b-4644-a222-b384f68eb695",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e74564b5-51e4-414a-9d67-2986e2669e4f",
+              "name": "telegram_chat_id",
+              "value": "SET_TELEGRAM_CHAT_ID",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9156518c-1d9f-4ad5-98fa-e2522caeac69",
+      "name": "detect.sql",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- WF2 step 1 (plan §5.4). Opens JAMMED/SPOOF incidents after 2 consecutive bad checks,\n-- re-arms MAY-LIFT incidents that go bad again, and returns only the newly opened ones.\nwith last2 as (\n  select o.*, row_number() over (partition by cell_id order by ts desc) rn\n  from observations o where ts > now() - interval '12 minutes'\n), jam as (\n  select l.cell_id, 'JAMMED' as type,\n    case when min(l.ratio) >= 0.5 then 'high' else 'medium' end as severity,\n    max(case when rn = 1 then n_degraded end) || '/' || max(case when rn = 1 then n_total end)\n      || ' aircraft degraded, 2 checks in a row' as evidence\n  from last2 l left join baselines b using (cell_id)\n  where rn <= 2 and n_total >= 3 and ratio >= coalesce(b.threshold, 0.3)\n  group by l.cell_id having count(*) = 2\n), spoof as (\n  select cell_id, 'SPOOF', 'high',\n    max(case when rn = 1 then n_spoof end) || ' aircraft with GPS/baro altitude gap > 1500 ft, 2 checks in a row'\n  from last2 where rn <= 2 and n_spoof >= 2\n  group by cell_id having count(*) = 2\n), hits as (select * from jam union all select * from spoof),\nrearm as (\n  update incidents i set status = 'open', may_lift_at = null\n  from hits h where i.cell_id = h.cell_id and i.type = h.type and i.status = 'may_lift'\n  returning i.id\n)\ninsert into incidents (cell_id, type, status, severity, confidence, evidence)\nselect cell_id, type, 'open', severity, 'medium (ADS-B only)', evidence from hits\non conflict (cell_id, type) where status <> 'closed' do nothing\nreturning *;\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "fcc270c4-7de3-49bf-8af8-13e39739d252",
+      "name": "lift.sql",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        660,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- WF2 step 2 (plan §5.4). MAY-LIFT after 30 quiet minutes. \"Quiet\" only counts with coverage\n-- (>= 5 checks with n_total >= 3), because UNKNOWN is never clean. Notification only: sorties are NOT touched.\nupdate incidents i set status = 'may_lift', may_lift_at = now()\nwhere i.status = 'open' and i.opened_at < now() - interval '30 minutes'\n  and (select count(*) from observations o\n       where o.cell_id = i.cell_id and o.ts > now() - interval '30 minutes' and o.n_total >= 3) >= 5\n  and not exists (select 1 from observations o left join baselines b using (cell_id)\n       where o.cell_id = i.cell_id and o.ts > now() - interval '30 minutes'\n         and ((i.type = 'JAMMED' and o.ratio >= coalesce(b.threshold, 0.3))\n           or (i.type = 'SPOOF'  and o.n_spoof >= 2)))\nreturning *;\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "b3803cf4-8c16-4bbf-b7d1-e7af45fd3982",
+      "name": "close.sql",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        880,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- WF2 step 3 (plan §5.4). Close after 2 h of MAY-LIFT. Sorties are NOT touched: a HOLD stays until a human lifts it.\nupdate incidents set status = 'closed', closed_at = now()\nwhere status = 'may_lift' and may_lift_at < now() - interval '2 hours' returning *;\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "392d7ed4-3867-412f-8d0c-f267e4c51972",
+      "name": "agent_log lines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// Owner: Person C (see CLAUDE.md)\n// Pure function, pasted into the WF2 Code node \"agent_log lines\". Spec: docs/plan.md §6 WF2, contract C8.\n// Input: the rows returned by detect.sql (opened), lift.sql (may-lift) and close.sql (closed).\n// n8n's \"always output data\" turns an empty result into one {} item, so rows without an id are dropped.\n\nfunction logLines(opened, mayLift, closed) {\n  const rows = (list) => (list || []).filter((r) => r && r.id != null);\n  return [\n    ...rows(opened).map((i) => ({\n      workflow: 'WF2',\n      action: `OPEN ${i.type} ${i.cell_id}`,\n      reason: `${i.type} ${i.cell_id} ${i.severity}: ${i.evidence}`,\n      outcome: `incident #${i.id} open, sorties through ${i.cell_id} go to the gate`,\n    })),\n    ...rows(mayLift).map((i) => ({\n      workflow: 'WF2',\n      action: `MAY-LIFT ${i.type} ${i.cell_id}`,\n      reason: `${i.type} ${i.cell_id} quiet 30 min with coverage (5+ checks with 3+ aircraft, none over threshold)`,\n      outcome: `incident #${i.id} may_lift, officer notified; every HOLD stays until a human lifts it`,\n    })),\n    ...rows(closed).map((i) => ({\n      workflow: 'WF2',\n      action: `CLOSE ${i.type} ${i.cell_id}`,\n      reason: `no new ${i.type} in ${i.cell_id} for 2 h after MAY-LIFT`,\n      outcome: `incident #${i.id} closed; sorties untouched`,\n    })),\n  ];\n}\n\nif (typeof module !== 'undefined') module.exports = { logLines };\n// n8n glue (Code node, \"Run once for all items\"):\n// const all = (n) => $(n).all().map((i) => i.json);\n// return logLines(all('detect.sql'), all('lift.sql'), all('close.sql')).map((json) => ({ json }));\nconst all = (n) => $(n).all().map((i) => i.json);\nreturn logLines(all('detect.sql'), all('lift.sql'), all('close.sql')).map((json) => ({ json }));\n"
+      }
+    },
+    {
+      "id": "4f80ddc6-9724-4730-a4de-fc51b144f714",
+      "name": "Insert agent_log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1320,
+        100
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "3bdaeb97-4217-4b9a-8b4e-baa77452cd61",
+      "name": "MAY-LIFT?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e72c2ffe-0f9e-4c06-8e3f-9d71c7345893",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "MAY-LIFT",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1ba80c79-3225-4cae-9cea-09bd07090804",
+      "name": "Telegram MAY-LIFT",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "chatId": "={{ $('Config').first().json.telegram_chat_id }}",
+        "text": "={{ 'ℹ️ MAY-LIFT · ' + $json.reason + '. HOLDs there may be lifted by you. AirGuard lifts nothing on its own.' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "name": "AirGuard Telegram"
+        }
+      }
+    },
+    {
+      "id": "5f3dcf08-700b-4db0-80d3-0ec72e35540e",
+      "name": "Execute WF3",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "executeOnce": true,
+      "position": [
+        1100,
+        460
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Le4bs7kBbUkQs0QD",
+          "cachedResultName": "AirGuard WF3 Gate"
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "detect.sql",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "detect.sql": {
+      "main": [
+        [
+          {
+            "node": "lift.sql",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "lift.sql": {
+      "main": [
+        [
+          {
+            "node": "close.sql",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "close.sql": {
+      "main": [
+        [
+          {
+            "node": "agent_log lines",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute WF3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "agent_log lines": {
+      "main": [
+        [
+          {
+            "node": "Insert agent_log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "MAY-LIFT?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MAY-LIFT?": {
+      "main": [
+        [
+          {
+            "node": "Telegram MAY-LIFT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Amsterdam"
+  }
+}

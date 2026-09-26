@@ -1,9 +1,104 @@
 # prosus-hackathon
 
-Team of 5. Idea TBD — this repo currently holds **how we work**, not what we build.
-The code structure gets generated on day 1 once we pick the idea (see `docs/SETUP_PROMPT.md`).
+**AirGuard: an autonomous pre-launch sortie guard that uses aircraft overhead as GPS-jamming sensors and holds, reschedules or cancels drone sorties before they launch into jammed airspace. It never says "safe".**
+
+Apify (collection) → n8n Cloud (all logic) → Supabase Postgres → Google Sheet (sortie plan) → Telegram (human gate) → Leaflet map on Vercel.
+What and why: `docs/prd.md` · how: `docs/plan.md` · contracts: `shared/contracts/CONTRACTS.md` · slices: `docs/TASKS.md` · rules for Claude Code: `CLAUDE.md`.
+
+**Live map:** _MAP_URL (set after deploy)_ · **Evidence:** [`docs/evidence.md`](docs/evidence.md) · **Video script:** [`docs/video-script.md`](docs/video-script.md)
+
+## AirGuard in one minute (for judges)
+
+Border-guard and ISR drone units on NATO's eastern flank plan patrol sorties hours ahead. GPS jamming around Kaliningrad, Belarus and the Gulf of Finland appears and moves almost every day. A drone that launches into it drifts, gets lost, or crosses a border.
+
+AirGuard turns every airliner overhead into a free GPS-quality sensor. Each ADS-B aircraft broadcasts NIC and NACp, which rate how far its own GPS fix can be trusted. One bad aircraft is noise. Many bad aircraft in the same 0.5° cell on two checks in a row is jamming. Every 5 minutes AirGuard checks every upcoming sortie against that picture, **before launch**. It acts on its own when an action makes a sortie *safer*, and it asks an officer on Telegram whenever an action would make a sortie *riskier*.
+
+### It never says "safe"
+
+AirGuard has four words for a cell and none of them is "safe":
+
+| State | Rule (SQL, no LLM) | Map |
+|---|---|---|
+| **JAMMED** | ≥ 3 sensor aircraft and degraded ratio ≥ threshold (default 0.3) on 2 consecutive checks | red |
+| **SPOOF** | ≥ 2 aircraft with a GPS-vs-baro altitude gap > 1500 ft on 2 consecutive checks | purple |
+| **UNKNOWN** | < 3 sensor aircraft, or data older than 15 min. **Missing data is never read as good.** | grey hatched |
+| **NO KNOWN ISSUE** | enough aircraft, below threshold | outline only |
+
+There is no green on the map, and no sortie status called "clear". A sortie with no known issue simply stays `PLANNED`. A jammed cell that quiets down for 30 minutes *with coverage* becomes **MAY-LIFT**, which is a notification only. The agent never lifts a HOLD.
+
+### Architecture
+
+```
+ adsb.lol ──┐ (fallback adsb.fi)
+            ▼
+ ┌─ APIFY ───────────────────────┐  webhook RUN.SUCCEEDED ──► n8n WF1
+ │ adsb-collector  (every 5 min) │  webhook RUN.FAILED    ──► n8n WF4
+ └───────────────────────────────┘
+ ┌─ n8n Cloud ──────────────────────────────────────────────────────────┐
+ │ WF1 Collect ─► WF2 Detect ─► WF3 Gate ──► Telegram card (3 buttons)  │
+ │                                              │                       │
+ │ WF6 Respond ◄── Telegram Trigger (button tap)┘                       │
+ │ WF4 Heal (Error Trigger + Apify failure + stale watchdog)            │
+ │ WF5 Report (07:00)                                                   │
+ └──────────┬───────────────────────────────┬───────────────────────────┘
+            ▼                               ▼
+   Supabase Postgres                  Google Sheet "AirGuard Sorties"
+   observations, incidents,           (the unit's sortie plan)
+   decisions, agent_log, baselines
+            ▲ read-only (RLS, anon key)
+   Leaflet map on Vercel
+```
+
+- **Apify** does all the collecting: 3 Baltic query points, adsb.lol with automatic failover to adsb.fi, deduped by aircraft.
+- **n8n** does all the logic. Detection is plain SQL (`features/detect/sql/`) and the sortie gate is a pure, unit-tested JS function (`features/gate/decide.js`). **No LLM is in the decision path.**
+- The gate is **state-based**: every cycle it compares all upcoming sorties with the current cell picture. A unique `decisions.key` makes each action happen exactly once, even when two runs overlap.
+
+### Autonomy and the human gate
+
+The agent **acts** on sorties launching within 2 h and **watches** sorties launching 2–12 h out.
+
+| Situation | Level | Agent does on its own | Human? |
+|---|---|---|---|
+| Route crosses a bad cell, launch 2–12 h away | WATCH | Logs "at risk" once, changes nothing (jamming often goes away) | No |
+| Routine sortie, JAMMED cell, launch +2 h still fits its window | **L1 Reschedule** | Moves the launch +2 h, notifies | No |
+| Low-priority sortie, JAMMED cell | **L2 Cancel** | Cancels, notifies | No |
+| Priority sortie · routine with no slot left · UNKNOWN cell jammed in the last 6 h | **L3 HOLD** | HOLD + Telegram card | **Yes** |
+| Any SPOOF cell on the route | **L4 Spoof HOLD** | HOLD + card flagged as spoofing | **Always** |
+| UNKNOWN cell, launch < 1 h, no recent jamming | UNVERIFIED | Notifies "no sensor coverage", changes nothing | Officer decides |
+| One incident hits > 25% of upcoming sorties | **BRAKE** | HOLDs all of them (reversible), sends **one** batch card | **Yes** |
+
+**Authority limits:** the agent may always make a sortie safer and may never make one riskier. It never lifts a HOLD. It never marks anything safe. It never routes through a JAMMED, SPOOF or UNKNOWN cell. It changes one sortie at a time, and the brake stops mass changes. Only allow-listed Telegram users can answer a card: **Keep HOLD**, **Launch anyway** or **False alarm**. A false alarm raises that cell's threshold by 0.05.
+
+**Self-healing:** source failover inside the actor, an Apify-failure webhook, and a watchdog that raises a stale-data alarm after 15 min (the map goes grey). Every node error lands in `agent_log` and on Telegram. At 07:00 a morning report lists incidents, what the agent did, the resolution rate and any HOLDs still waiting for an officer.
+
+### Real vs demo data (honesty note)
+
+- **Real:** every aircraft, every NIC/NACp value and every jamming incident comes from live ADS-B (adsb.lol / adsb.fi). Nothing on the map is simulated.
+- **Demo:** the sorties. The 48 sorties of the *3rd Border Drone Sqn (DEMO, fictional)* are generated, but they are placed in cells that really had aircraft coverage, and the priority mix is fixed up front (12 priority / 24 routine / 12 low). Priority sorties always go to a human, so the mix drives the autonomous resolution rate.
+- **Limits:** jamming seen at airliner altitude is a wide-area early warning. A weak, local, low-altitude jammer can be missed. That's exactly why AirGuard never says "safe".
+
+### Setup
+
+1. `cp .env.example .env` and fill in the values (Supabase, n8n API, Apify, Telegram, Google Sheet). Never commit `.env`.
+2. Supabase: run `db/migrations/001_init.sql`.
+3. Apify: push `features/collect/actor`, add a */5 schedule and the two webhooks (`airguard-apify`, `airguard-apify-failed`).
+4. n8n: create the five credentials and import WF1–WF6 in the order given in [`docs/n8n-import.md`](docs/n8n-import.md).
+5. Sorties: `node features/gate/gen-sorties.js`, then import the CSV into the sheet **"AirGuard Sorties"**, tab `sorties`.
+6. Map: see [`docs/n8n-import.md`](docs/n8n-import.md#map-vercel). `?fixture=1` works without any backend.
+7. Tests: `npm test` (Node ≥ 20, zero dependencies). Detection SQL: `bash features/detect/fixtures/run-fixtures.sh`.
+
+### Evidence
+
+Everything below was captured from the unattended hosted run. The shot list and the exact query behind each shot are in [`docs/evidence.md`](docs/evidence.md).
+
+- Best real incident, from detection to decision: `features/detect/evidence/`
+- Failover and stale alarm: `features/collect/evidence/`
+- Telegram card, tap and sheet update: `features/gate/evidence/`
+- Morning report and map: `features/detect/evidence/`
 
 ---
+
+# Team workflow
 
 ## Quick start (read this before you write a line of code)
 
@@ -11,6 +106,7 @@ The code structure gets generated on day 1 once we pick the idea (see `docs/SETU
 git clone git@github.com:krishaanth5831/prosus-hackathon.git
 cd prosus-hackathon
 cp .env.example .env     # ask Krish for the real values
+npm test                 # Node >= 20, zero dependencies
 ```
 
 Then: **claim a task on the board before you start it.** Nothing else in this README matters as much as that line.

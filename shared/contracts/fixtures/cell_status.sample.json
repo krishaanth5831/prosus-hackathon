@@ -1,0 +1,68 @@
+[
+  {
+    "cell_id": "54.5_20.5",
+    "ts": "2026-09-26T21:05:03.412Z",
+    "n_total": 8,
+    "n_degraded": 5,
+    "ratio": 0.625,
+    "incident_id": 41,
+    "severity": "high",
+    "evidence": "5/8 aircraft degraded, 2 checks in a row",
+    "state": "JAMMED"
+  },
+  {
+    "cell_id": "55.0_20.5",
+    "ts": null,
+    "n_total": null,
+    "n_degraded": null,
+    "ratio": null,
+    "incident_id": 38,
+    "severity": "medium",
+    "evidence": "4/11 aircraft degraded, 2 checks in a row",
+    "state": "JAMMED"
+  },
+  {
+    "cell_id": "59.5_25.0",
+    "ts": "2026-09-26T21:05:03.412Z",
+    "n_total": 5,
+    "n_degraded": 1,
+    "ratio": 0.2,
+    "incident_id": 42,
+    "severity": "high",
+    "evidence": "2 aircraft with GPS/baro altitude gap > 1500 ft, 2 checks in a row",
+    "state": "SPOOF"
+  },
+  {
+    "cell_id": "56.5_21.0",
+    "ts": "2026-09-26T21:05:03.412Z",
+    "n_total": 7,
+    "n_degraded": 1,
+    "ratio": 0.14285714285714285,
+    "incident_id": null,
+    "severity": null,
+    "evidence": null,
+    "state": "NO_KNOWN_ISSUE"
+  },
+  {
+    "cell_id": "55.0_21.0",
+    "ts": "2026-09-26T21:05:03.412Z",
+    "n_total": 2,
+    "n_degraded": 0,
+    "ratio": 0,
+    "incident_id": null,
+    "severity": null,
+    "evidence": null,
+    "state": "UNKNOWN"
+  },
+  {
+    "cell_id": "53.5_-0.5",
+    "ts": "2026-09-26T21:05:03.412Z",
+    "n_total": 1,
+    "n_degraded": 0,
+    "ratio": 0,
+    "incident_id": null,
+    "severity": null,
+    "evidence": null,
+    "state": "UNKNOWN"
+  }
+]

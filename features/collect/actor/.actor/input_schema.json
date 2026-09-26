@@ -1,0 +1,19 @@
+{
+  "title": "AirGuard ADS-B collector input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "points": {
+      "title": "Query points",
+      "type": "array",
+      "description": "Query circles [{\"lat\": 56.5, \"lon\": 21.0, \"nm\": 250}]. Leave empty for the 3 Baltic points: Latvia/Lithuania coast, Gulf of Finland, Gdańsk/Kaliningrad.",
+      "editor": "json"
+    },
+    "forceFallback": {
+      "title": "Force fallback source",
+      "type": "boolean",
+      "description": "Skip adsb.lol and use adsb.fi, to prove failover.",
+      "default": false
+    }
+  }
+}

@@ -5,6 +5,10 @@
 *.pem
 *.key
 secrets/
+# map runtime config (Supabase URL + anon key): written at deploy time, never committed
+features/map/config.js
+# Vercel project link from `vercel link` (local only)
+.vercel/
 
 # --- OS ---
 .DS_Store

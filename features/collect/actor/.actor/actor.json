@@ -1,0 +1,9 @@
+{
+  "actorSpecification": 1,
+  "name": "airguard-adsb-collector",
+  "title": "AirGuard ADS-B collector",
+  "description": "Polls adsb.lol (fallback adsb.fi) at 3 Baltic points every 5 min. One dataset row per aircraft with its GPS integrity (NIC/NACp), plus a RUN_META record.",
+  "version": "0.1",
+  "input": "./input_schema.json",
+  "dockerfile": "../Dockerfile"
+}

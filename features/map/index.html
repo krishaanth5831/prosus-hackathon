@@ -1,0 +1,177 @@
+<!doctype html>
+<!-- Owner: Person C (see CLAUDE.md). AirGuard live map: read-only, Supabase anon key, refresh every 60 s.
+     Colours: red JAMMED, purple SPOOF, grey hatched UNKNOWN, outline only NO_KNOWN_ISSUE. No other colours; the page never shows safe.
+     Config: config.js (not in git) sets window.AIRGUARD = { url, key }. ?fixture=1 renders the contract fixtures. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AirGuard map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e8ec; --dim:#9aa3b2;
+          --jam:#e5383b; --spoof:#9b5de5; --unknown:#8d939e; --nki:#cfd6e2; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  body { display: grid; grid-template: "head head" auto "map side" 1fr / minmax(0, 1fr) 380px; height: 100vh; }
+  header { grid-area: head; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 17px; }
+  header .sub { color: var(--dim); }
+  #map { grid-area: map; min-height: 300px; }
+  aside { grid-area: side; overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); padding: 12px 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 14px 0 8px; }
+  .legend div { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .sw { width: 22px; height: 14px; border: 2px solid; flex: none; }
+  .sw.jam { background: var(--jam); border-color: var(--jam); }
+  .sw.spoof { background: var(--spoof); border-color: var(--spoof); }
+  .sw.unknown { border-color: var(--unknown); background: repeating-linear-gradient(45deg, var(--unknown) 0 2px, transparent 2px 6px); }
+  .sw.nki { border-color: var(--nki); background: transparent; }
+  .never { margin-top: 8px; padding: 6px 8px; border: 1px solid var(--line); color: var(--dim); }
+  .counts { display: flex; gap: 12px; flex-wrap: wrap; }
+  .counts b { font-variant-numeric: tabular-nums; }
+  .alert { padding: 8px 16px; background: #3a1d1f; color: #ffd0d0; border-bottom: 1px solid var(--jam); }
+  .note { padding: 8px 16px; background: #22252d; color: var(--dim); border-bottom: 1px solid var(--line); }
+  ol { list-style: none; padding: 0; margin: 0; }
+  li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  li .meta { color: var(--dim); font-size: 12px; }
+  li .act { font-weight: 600; }
+  li .why { color: var(--dim); }
+  .leaflet-popup-content { font: 13px/1.4 system-ui, sans-serif; }
+  .leaflet-container { background: var(--bg); }
+  path.cell-unknown { fill: url(#hatch); fill-opacity: 1; }
+  @media (max-width: 760px) {
+    body { grid-template: "head" auto "map" 60vh "side" auto / minmax(0, 1fr); height: auto; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>AirGuard · GNSS picture</h1>
+  <span class="sub" id="updated">loading…</span>
+  <span class="counts" id="counts"></span>
+</header>
+<div id="map"></div>
+<aside>
+  <div id="banner"></div>
+  <h2>Legend</h2>
+  <div class="legend">
+    <div><span class="sw jam"></span> JAMMED: ≥ 3 aircraft, degraded ratio over threshold, 2 checks in a row</div>
+    <div><span class="sw spoof"></span> SPOOF: ≥ 2 aircraft with GPS/baro gap &gt; 1500 ft, 2 checks</div>
+    <div><span class="sw unknown"></span> UNKNOWN: &lt; 3 sensor aircraft or data older than 15 min</div>
+    <div><span class="sw nki"></span> NO KNOWN ISSUE: enough aircraft, below threshold</div>
+    <div class="never">This map never shows safe. Undrawn cells have no sensor data: they are UNKNOWN.</div>
+  </div>
+  <h2>Agent log (last 20)</h2>
+  <ol id="log"></ol>
+</aside>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs><pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+    <rect width="8" height="8" fill="#8d939e" fill-opacity=".12"/><rect width="2.5" height="8" fill="#8d939e" fill-opacity=".7"/>
+  </pattern></defs>
+</svg>
+<script src="config.js" onerror="void 0"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const FIXTURE = new URLSearchParams(location.search).has('fixture');
+const CFG = window.AIRGUARD || {};
+const FIXTURE_URLS = ['../../shared/contracts/fixtures/cell_status.sample.json',
+  'https://raw.githubusercontent.com/krishaanth5831/prosus-hackathon/dev/shared/contracts/fixtures/cell_status.sample.json'];
+const FIXTURE_LOG = [
+  { ts: '2026-09-26T21:05:09Z', workflow: 'WF2', action: 'OPEN JAMMED 54.5_20.5', reason: 'JAMMED 54.5_20.5 high: 5/8 aircraft degraded, 2 checks in a row', outcome: 'incident #41 open, sorties through 54.5_20.5 go to the gate' },
+  { ts: '2026-09-26T21:05:11Z', workflow: 'WF3', action: 'HOLD S-017', reason: 'JAMMED 54.5_20.5 high: priority sortie, launch in 1 h 20 min', outcome: 'card sent, waiting for an officer' },
+  { ts: '2026-09-26T20:40:02Z', workflow: 'WF1', action: 'SWITCH SOURCE TO ADSB.FI', reason: 'primary adsb.lol unavailable (HTTP 503), switched to adsb.fi', outcome: '94 aircraft from adsb.fi, 31 cells written' },
+];
+const STYLE = {
+  JAMMED:         { color: '#e5383b', weight: 1, fillColor: '#e5383b', fillOpacity: .55 },
+  SPOOF:          { color: '#9b5de5', weight: 1, fillColor: '#9b5de5', fillOpacity: .55 },
+  UNKNOWN:        { color: '#8d939e', weight: 1, className: 'cell-unknown' },
+  NO_KNOWN_ISSUE: { color: '#cfd6e2', weight: 1.2, opacity: .8, fill: false },
+};
+const LABEL = { JAMMED: 'JAMMED', SPOOF: 'SPOOF', UNKNOWN: 'UNKNOWN', NO_KNOWN_ISSUE: 'NO KNOWN ISSUE' };
+
+const map = L.map('map', { worldCopyJump: true }).setView([57, 23], 5);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 12,
+  attribution: 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · ADS-B: adsb.lol / adsb.fi',
+}).addTo(map);
+const layer = L.layerGroup().addTo(map);
+let fitted = false;
+
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const utc = (ts) => ts ? new Date(ts).toISOString().replace('.000', '').replace(/\.\d+Z$/, 'Z') : '–';
+const local = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+async function rest(path) {
+  const r = await fetch(`${CFG.url}/rest/v1/${path}`, { headers: { apikey: CFG.key, Authorization: `Bearer ${CFG.key}` } });
+  if (!r.ok) throw new Error(`${path.split('?')[0]}: HTTP ${r.status}`);
+  return r.json();
+}
+async function fixture() {
+  for (const u of FIXTURE_URLS) { try { const r = await fetch(u); if (r.ok) return r.json(); } catch {} }
+  throw new Error('cell_status fixture not reachable');
+}
+
+function bounds(cellId) {
+  const [lat, lon] = cellId.split('_').map(Number);
+  return [[lat, lon], [lat + 0.5, lon + 0.5]];
+}
+function popup(c) {
+  const d = el('div');
+  d.append(el('b', null, `${LABEL[c.state]} · ${c.cell_id}`), el('br'));
+  if (c.n_total != null) d.append(`${c.n_degraded}/${c.n_total} sensor aircraft degraded (ratio ${Number(c.ratio).toFixed(2)})`, el('br'));
+  else d.append('no fresh observation (older than 15 min)', el('br'));
+  if (c.incident_id) d.append(`incident #${c.incident_id} (${c.severity}): ${c.evidence}`, el('br'));
+  d.append(`last check: ${utc(c.ts)}`);
+  return d;
+}
+function drawCells(cells) {
+  layer.clearLayers();
+  const order = ['NO_KNOWN_ISSUE', 'UNKNOWN', 'SPOOF', 'JAMMED'];   // worst on top
+  const n = Object.fromEntries(order.map((s) => [s, 0]));
+  for (const c of [...cells].sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state))) {
+    if (!STYLE[c.state]) continue;
+    n[c.state]++;
+    L.rectangle(bounds(c.cell_id), STYLE[c.state]).bindPopup(popup(c)).addTo(layer);
+  }
+  const counts = document.getElementById('counts');
+  counts.replaceChildren(...['JAMMED', 'SPOOF', 'UNKNOWN', 'NO_KNOWN_ISSUE'].map((s) => {
+    const x = el('span'); x.append(el('b', null, String(n[s])), ` ${LABEL[s]}`); return x;
+  }));
+  if (!fitted && cells.length) { map.fitBounds(L.latLngBounds(cells.flatMap((c) => bounds(c.cell_id))).pad(0.1)); fitted = true; }
+}
+function drawLog(rows) {
+  document.getElementById('log').replaceChildren(...rows.map((r) => {
+    const li = el('li');
+    li.append(el('div', 'meta', `${utc(r.ts)} · ${r.workflow}`), el('div', 'act', r.action),
+      el('div', 'why', r.reason), el('div', 'meta', r.outcome || ''));
+    return li;
+  }));
+}
+function banner(kind, text) {
+  document.getElementById('banner').replaceChildren(...(text ? [el('div', kind, text)] : []));
+}
+
+async function refresh() {
+  const now = new Date();
+  try {
+    let cells, log;
+    if (FIXTURE) { cells = await fixture(); log = FIXTURE_LOG; }
+    else if (!CFG.url || !CFG.key) { banner('note', 'No config.js with the Supabase URL and anon key. Open with ?fixture=1 to see the contract fixtures.'); return; }
+    else [cells, log] = await Promise.all([rest('cell_status?select=*'),
+      rest('agent_log?select=ts,workflow,action,reason,outcome&order=ts.desc&limit=20')]);
+    drawCells(cells);
+    drawLog(log);
+    const fresh = cells.some((c) => c.ts);
+    banner(FIXTURE ? 'note' : 'alert', FIXTURE ? 'FIXTURE MODE: contract sample data, not live.'
+      : fresh ? '' : 'No fresh sensor data (older than 15 min): every cell is UNKNOWN.');
+    document.getElementById('updated').textContent = `updated ${local(now)} local · ${utc(now)}${FIXTURE ? ' · fixture' : ''}`;
+  } catch (e) {
+    banner('alert', `Live data unavailable (${e.message}). Treat every cell as UNKNOWN. Retrying in 60 s.`);
+  }
+}
+refresh();
+setInterval(refresh, 60_000);
+</script>
+</body>
+</html>
