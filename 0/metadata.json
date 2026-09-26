@@ -1,0 +1,58 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3FTMJF71MAHFE9VGRRBAFE0",
+  "session_id": "326c1420-bcbd-405e-81de-4997bcc868d9",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-26T21:41:15.282818314Z",
+  "branch": "krish/integration",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "features/collect/workflows.test.js"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "07694590d2d6",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 364,
+    "cache_creation_tokens": 472657,
+    "cache_read_tokens": 55149585,
+    "output_tokens": 301475,
+    "api_call_count": 175
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-26T21:41:15.168413668Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 10,
+    "human_removed": 2,
+    "total_committed": 0,
+    "total_lines_changed": 24,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 184,
+      "user_lines_removed": 10,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.json": 90,
+        ".codex/hooks.json": 88,
+        "features/collect/wf1-collect.json": 3,
+        "features/detect/wf2-detect.json": 3
+      },
+      "user_removed_per_file": {
+        "features/collect/wf1-collect.json": 5,
+        "features/detect/wf2-detect.json": 5
+      }
+    }
+  ]
+}
