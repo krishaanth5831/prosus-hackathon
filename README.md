@@ -119,8 +119,8 @@ Two permanent branches. Everything else is temporary.
 
 | Branch | What it is | Rules |
 |---|---|---|
-| `main` | Always-working code. What we demo from. | Protected. PR only, Krish approves. No force-push. No direct commits. |
-| `dev` | Integration branch. Default branch — PRs land here. | No force-push, no deletion. Should be working most of the time. |
+| `main` | **Default branch.** Always-working code. What we demo from. | Protected. PRs only from `dev`, Krish approves. No force-push. No direct commits. |
+| `dev` | Integration branch: all work in progress. Feature PRs land here. | No force-push, no deletion. Should be working most of the time. Never gets PRs from `main`. |
 | `name/feature` | Your work. Lives **hours, not days**. | Delete after merge. |
 
 ### The loop
@@ -132,7 +132,8 @@ git switch -c krish/checkout-flow     # your-name/what-it-does
 # ...build for 2-4 hours...
 
 git push -u origin krish/checkout-flow
-# open PR into dev -> someone skims it -> merge -> delete branch
+gh pr create --base dev               # always --base dev: the default branch is main
+# someone skims it -> merge -> delete branch
 
 git switch dev && git pull            # immediately, so you're never stale
 ```
@@ -142,7 +143,9 @@ three small merges are far cheaper than one big one at hour 40.
 
 ### dev -> main
 
-**Every time the demo works end to end, merge `dev` into `main` and tag it.**
+**Every time the demo works end to end, merge `dev` into `main` and tag it.** PRs into `main` only ever come
+from `dev`, never the other way round. When the merge lands, `.github/workflows/sync-dev.yml` fast-forwards
+`dev` to the same commit, so the two branches never drift apart.
 
 ```bash
 # PR dev -> main, Krish approves, merge. Then:

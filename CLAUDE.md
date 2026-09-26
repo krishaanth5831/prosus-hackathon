@@ -31,8 +31,9 @@ Spec: `docs/prd.md` (what, why) · `docs/plan.md` (how) · `shared/contracts/CON
 Follow `README.md`.
 - `git switch dev && git pull` before every slice.
 - Branch `<name>/<slice>`.
-- One PR per slice into dev: `gh pr create --base dev`, filling in the PR template.
-- Never push to `dev` or `main` directly.
+- One PR per slice into dev: `gh pr create --base dev`, filling in the PR template. Always pass `--base dev`: the default branch is `main`.
+- `main` gets PRs only from `dev` (Krish approves). Never open a PR from `main` into `dev`: `.github/workflows/sync-dev.yml` fast-forwards `dev` after every release.
+- Never push to `dev` or `main` directly (the sync-dev Action is the only exception).
 - Pull dev into your branch after every merge (`git pull origin dev`).
 
 ## Vault rules

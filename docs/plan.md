@@ -58,7 +58,7 @@ What and why: (C) PRD — AirGuard · Research: 00 Research/JamWatch — GPS Jam
 ## 3. Repo
 
 **GitHub: [krishaanth5831/prosus-hackathon](https://github.com/krishaanth5831/prosus-hackathon)** (public). This plan follows the working rules already in the repo:
-- **Branches:** `dev` is the default branch and every PR goes into it. `main` is protected and needs Krish's approval. Branches are named `name/feature` and live for hours.
+- **Branches:** `main` is the default branch and holds only released, working code: its only PRs come from `dev`, and Krish approves them. Every feature PR goes into `dev`. After each release a GitHub Action fast-forwards `dev` to `main`, so the two never drift. Branches are named `name/feature` and live for hours.
 - **Layout:** feature folders (vertical slices), one per workstream.
 - **Hot files:** Krish owns the database schema, the shared contracts and `CLAUDE.md`. A merged migration is never edited; changes go in a new file.
 - **Releases:** every time the demo works end to end, `dev` is merged into `main` and tagged `demo-vN`.
