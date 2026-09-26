@@ -1,5 +1,5 @@
 // Owner: Person B (see CLAUDE.md)
-// The WF3 export follows C9 and stay in sync with the .js/.sql files they embed.
+// WF3 and WF6 exports follow C9 and stay in sync with the .js/.sql files they embed.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -49,7 +49,7 @@ function followsC9(wf) {
   }
   // Code nodes = a tested file + glue; the glue lines are the ones documented at the bottom of that file
   for (const n of of(wf, 'code')) {
-    const file = ['decide.js', 'act.js'].find((f) => n.parameters.jsCode.startsWith(text(f)));
+    const file = ['decide.js', 'act.js', 'respond.js'].find((f) => n.parameters.jsCode.startsWith(text(f)));
     if (!file) { assert.ok(n.parameters.jsCode.split('\n').length <= 2, `${n.name}: glue-only nodes stay one line`); continue; }
     for (const line of n.parameters.jsCode.slice(text(file).length).split('\n').filter(Boolean))
       assert.ok(text(file).includes(line.trim()), `${n.name}: glue "${line.trim()}" is documented in ${file}`);
@@ -103,4 +103,44 @@ test('WF3 Gate export: one Switch branch per level group, WATCH log only, agent_
   const lowest = Math.max(...below(wf, 'Switch level').map((n) => node(wf, n).position[1]));
   assert.ok(node(wf, 'agent_log lines').position[1] > lowest, 'agent_log lines runs after sheet and Telegram');
   assert.deepEqual(next(wf, 'agent_log lines'), ['Insert agent_log']);
+});
+
+test('WF6 Respond export: the only Telegram Trigger, allowlist first, claim → sheet → log → answer → edit', () => {
+  const wf = load('wf6-respond.json');
+  assert.equal(wf.name, 'AirGuard WF6 Respond');
+  followsC9(wf);
+  const [trigger, ...more] = of(wf, 'telegramTrigger');
+  assert.equal(more.length, 0);
+  assert.deepEqual(trigger.parameters.updates, ['callback_query']);
+  assert.ok(trigger.webhookId);
+  assert.deepEqual([next(wf, 'Config'), next(wf, 'Allowlisted?', 0), next(wf, 'Allowlisted?', 1)],
+    [['Allowlisted?'], ['Parse tap'], ['Refused line']]);
+  assert.deepEqual([next(wf, 'Parse tap'), next(wf, 'Claim'), next(wf, 'Outcome')], [['Claim'], ['Outcome'], ['Sheet rows', 'Log rows', 'Answer']]);
+  const ys = ['Sheet rows', 'Log rows', 'Answer'].map((n) => node(wf, n).position[1]);
+  assert.deepEqual([...ys].sort((a, b) => a - b), ys, 'v1 order: sheet, then log, then answer');
+  assert.deepEqual([next(wf, 'Sheet rows'), next(wf, 'Log rows'), next(wf, 'Answer')], [['Update sheet'], ['Insert agent_log'], ['Edit card']]);
+  const claim = node(wf, 'Claim');
+  assert.equal(claim.parameters.query, text('claim.sql'));
+  assert.equal(claim.parameters.options.queryReplacement, '={{ $json.params }}', 'one array: values with commas stay whole');
+  assert.equal(claim.alwaysOutputData, true);
+  const edit = node(wf, 'Edit card').parameters;
+  assert.deepEqual([edit.operation, edit.replyMarkup], ['editMessageText', 'none'], 'the edit drops the buttons');
+  const refused = node(wf, 'Answer refused').parameters;
+  assert.deepEqual([refused.operation, refused.additionalFields.show_alert], ['answerQuery', true]);
+  assert.match(refused.additionalFields.text, /^Not authorised/);
+  assert.deepEqual(next(wf, 'Refused line'), ['Answer refused', 'Log refused']);
+  assert.ok(node(wf, 'Answer refused').position[1] < node(wf, 'Log refused').position[1], 'answer, then log');
+});
+
+test('WF6 Respond: the Allowlisted? expression lets only listed Telegram user ids through', () => {
+  const wf = load('wf6-respond.json');
+  const expr = node(wf, 'Allowlisted?').parameters.conditions.conditions[0].leftValue.match(/^=\{\{([\s\S]*)\}\}$/)[1];
+  const update = JSON.parse(fs.readFileSync(path.join(__dirname, '../../shared/contracts/fixtures/telegram-callback.sample.json'), 'utf8'))[0];
+  const allowed = (list, fromId) => new Function('$', `return (${expr});`)((name) => ({ first: () => ({ json: name === 'Config'
+    ? { allowed_user_ids: list } : { ...update, callback_query: { ...update.callback_query, from: { id: fromId } } } }) }));
+  assert.equal(allowed('111111111,222222222', 111111111), true);
+  assert.equal(allowed('222222222, 111111111', 111111111), true, 'spaces in the list are fine');
+  assert.equal(allowed('111111111,222222222', 999999999), false);
+  assert.equal(allowed('1111111110', 111111111), false, 'no prefix match');
+  assert.equal(allowed('', 111111111), false);
 });
