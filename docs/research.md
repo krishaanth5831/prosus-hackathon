@@ -98,8 +98,9 @@ Spoofing (fake positions) looks different: sudden position jumps, impossible spe
 ### Data sources
 | Source                                                           | Via                      | What for                                                        |
 | ---------------------------------------------------------------- | ------------------------ | --------------------------------------------------------------- |
-| adsb.lol `/v2/point/{lat}/{lon}/{radius_nm}`                     | Apify actor              | Primary aircraft data (nic, nac_p, alt_geom, alt_baro, lat/lon) |
-| airplanes.live / adsb.fi (same readsb format)                    | Apify actor fallback     | Failover when primary is down or rate-limited                   |
+| adsb.lol `/v2/point/{lat}/{lon}/{radius_nm}` (aircraft under `ac`; needs a User-Agent, answers 403 to Node's default `node`) | Apify actor | Primary aircraft data (nic, nac_p, alt_geom, alt_baro, lat/lon) |
+| adsb.fi `/api/v2/lat/{lat}/lon/{lon}/dist/{nm}` (readsb fields, but aircraft under `aircraft`, not `ac`) | Apify actor fallback | Failover when primary is down or rate-limited |
+| airplanes.live (not checked)                                     | none yet                 | Possible second fallback                                        |
 | FAA NOTAM search / national AIS sites (Finland, Estonia, Poland) | Apify scraper            | Official "GNSS INTERFERENCE" notices                            |
 | News / aviation community posts                                  | Apify scraper (optional) | Corroboration and context for briefings                         |
 | Client flight plans                                              | Google Sheet             | Simulated drone operator schedule (be honest about this)        |
