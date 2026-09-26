@@ -1,2 +1,10 @@
 # Owner: Person A (see CLAUDE.md)
-# STUB. TODO Person A: FROM apify/actor-node:20, copy package.json, npm install --omit=dev, copy src, CMD npm start.
+FROM apify/actor-node:20
+
+COPY package*.json ./
+RUN npm --quiet set progress=false \
+    && npm install --omit=dev --omit=optional \
+    && rm -r ~/.npm
+
+COPY . ./
+CMD npm start --silent

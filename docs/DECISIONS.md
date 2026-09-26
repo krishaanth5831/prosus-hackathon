@@ -14,3 +14,4 @@ One line each. Why we chose something, so nobody relitigates it at hour 30.
 | 2026-09-26 | n8n Code-node logic lives as pure tested `.js` next to its `node --test` test | Code nodes cannot be unit-tested inside n8n; the node pastes the function + two glue lines |
 | 2026-09-26 | One test cell per person (A `89.5_178.5`, B `89.5_179.0`, C `89.5_179.5`) + `T-*` sortie ids | Everyone tests on the shared Supabase and sheet without touching anyone else's data |
 | | | |
+| 2026-09-26 | Actor sends its own User-Agent and reads `ac ?? aircraft` (A2) | adsb.lol answers 403 to Node's default user-agent `node`, so every Apify run silently failed over; adsb.fi answers `{aircraft}`, not `{ac}`, so plan §5.1 got 0 aircraft from the fallback |

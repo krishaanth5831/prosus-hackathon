@@ -1,19 +1,18 @@
 {
   "title": "AirGuard ADS-B collector input",
-  "description": "Owner: Person A (see CLAUDE.md). STUB: points[] + forceFallback, see docs/plan.md §5.1.",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
     "points": {
       "title": "Query points",
       "type": "array",
-      "description": "TODO Person A: [{lat, lon, nm}] query circles. Default: the 3 Baltic points in docs/plan.md §5.1.",
+      "description": "Query circles [{\"lat\": 56.5, \"lon\": 21.0, \"nm\": 250}]. Leave empty for the 3 Baltic points: Latvia/Lithuania coast, Gulf of Finland, Gdańsk/Kaliningrad.",
       "editor": "json"
     },
     "forceFallback": {
       "title": "Force fallback source",
       "type": "boolean",
-      "description": "Skip adsb.lol and use adsb.fi (to prove failover).",
+      "description": "Skip adsb.lol and use adsb.fi, to prove failover.",
       "default": false
     }
   }
