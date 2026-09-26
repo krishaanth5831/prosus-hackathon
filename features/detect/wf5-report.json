@@ -1,0 +1,254 @@
+{
+  "name": "AirGuard WF5 Report",
+  "nodes": [
+    {
+      "id": "fb9dd15d-85f3-4968-adca-8781590d891b",
+      "name": "Every day 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "0aeed85f-f3d1-4371-b018-5fda6e8f4f35",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3fa8307a-9ffd-4a74-8425-f04d75c4ce8a",
+              "name": "telegram_chat_id",
+              "value": "SET_TELEGRAM_CHAT_ID",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2c0e893d-8c55-4d8c-845a-4a928b9b9e0d",
+      "name": "report.sql",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- WF5 morning report: one row covering the last 24 h.\n-- resolution_rate = (L1+L2) / (L1+L2+L3+L4+BRAKE), counting only decisions tied to an incident.\n-- WATCH and UNVERIFIED are not actions, so they are counted per level but left out of the rate.\nwith d as (\n  select * from decisions where ts > now() - interval '24 hours'\n), acted as (\n  select count(*) filter (where level in ('L1_RESCHEDULE','L2_CANCEL')) as auto,\n         count(*) filter (where level in ('L1_RESCHEDULE','L2_CANCEL','L3_HOLD','L4_SPOOF_HOLD','BRAKE_HOLD')) as total\n  from d where incident_id is not null\n)\nselect\n  (select count(*) from incidents where opened_at > now() - interval '24 hours') as incidents_opened,\n  (select string_agg(type || ' ' || cell_id || ' (' || severity || ')', ', ' order by opened_at)\n     from incidents where opened_at > now() - interval '24 hours') as incidents_list,\n  (select count(*) from incidents where status in ('open','may_lift')) as incidents_live,\n  (select coalesce(jsonb_object_agg(level, n), '{}'::jsonb)\n     from (select level, count(*) n from d group by level) x) as per_level,\n  a.auto as resolved_by_agent,\n  a.total as acted_on,\n  case when a.total > 0 then round(100.0 * a.auto / a.total) end as resolution_rate_pct,\n  (select count(*) from agent_log where ts > now() - interval '24 hours'\n     and (action like 'SWITCH SOURCE%' or reason ilike '%switched to%')) as failovers,\n  (select count(*) from decisions\n     where level in ('L3_HOLD','L4_SPOOF_HOLD','BRAKE_HOLD') and human_answer is null) as pending_holds,\n  (select string_agg(distinct sortie_id, ', ') from decisions\n     where level in ('L3_HOLD','L4_SPOOF_HOLD','BRAKE_HOLD') and human_answer is null) as pending_hold_sorties,\n  to_char(now() at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as generated_at\nfrom acted a;\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "48e51a87-4181-40a1-94ad-fe9c42a48dd4",
+      "name": "Report text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Owner: Person C (see CLAUDE.md)\n// Pure function, pasted into the WF5 Code node \"Report text\". Spec: docs/plan.md §6 WF5, PRD F9.\n// Input: the one row from report.sql. Output: the Telegram message. Local time only in this human text.\n\nfunction reportText(r, now = new Date()) {\n  const n = (v) => Number(v || 0);\n  const day = now.toLocaleString('en-GB', { timeZone: 'Europe/Amsterdam', weekday: 'short', day: 'numeric',\n    month: 'short', hour: '2-digit', minute: '2-digit' });\n  const levels = Object.entries(r.per_level || {}).sort(([a], [b]) => a.localeCompare(b))\n    .map(([level, count]) => `${level} ${count}`).join(' · ');\n  const acted = n(r.acted_on);\n  return [\n    `📋 AirGuard morning report · ${day} (Amsterdam)`,\n    'Last 24 h:',\n    `• Incidents opened: ${n(r.incidents_opened)}${r.incidents_list ? ` (${r.incidents_list})` : ''}. Live now: ${n(r.incidents_live)}`,\n    acted\n      ? `• Sorties acted on: ${acted}. Agent resolved ${n(r.resolved_by_agent)} (${n(r.resolution_rate_pct)}%) by reschedule/cancel; ${acted - n(r.resolved_by_agent)} went to a human.`\n      : '• Sorties acted on: 0. No incident touched a sortie inside the 2 h window.',\n    `• Per level: ${levels || 'none'}`,\n    `• Source failovers handled: ${n(r.failovers)}`,\n    n(r.pending_holds)\n      ? `• HOLDs waiting for an officer: ${n(r.pending_holds)} (${r.pending_hold_sorties})`\n      : '• HOLDs waiting for an officer: 0',\n    'AirGuard never says safe: sorties with no known issue stay PLANNED.',\n  ].join('\\n');\n}\n\nif (typeof module !== 'undefined') module.exports = { reportText };\n// n8n glue (Code node, \"Run once for all items\"):\n// return [{ json: { text: reportText($input.first().json) } }];\nreturn [{ json: { text: reportText($input.first().json) } }];\n"
+      }
+    },
+    {
+      "id": "45650a92-beb1-4b21-bd80-a7e5d07b9f5a",
+      "name": "Telegram report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "chatId": "={{ $('Config').first().json.telegram_chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "name": "AirGuard Telegram"
+        }
+      }
+    },
+    {
+      "id": "db5fa6bf-0aef-4e95-bb55-b58a52d2ae9b",
+      "name": "Report line",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d388e907-a8e7-48e5-ab0c-685fd415c009",
+              "name": "workflow",
+              "value": "WF5",
+              "type": "string"
+            },
+            {
+              "id": "2c7a2992-5c8b-4111-83f1-b0be9427eff2",
+              "name": "action",
+              "value": "SEND MORNING REPORT",
+              "type": "string"
+            },
+            {
+              "id": "70fba9d4-ccfd-4840-8bb6-71e8472a2102",
+              "name": "reason",
+              "value": "={{ 'last 24 h: ' + $('report.sql').first().json.incidents_opened + ' incidents opened, ' + $('report.sql').first().json.acted_on + ' sorties acted on, ' + $('report.sql').first().json.pending_holds + ' HOLDs pending' }}",
+              "type": "string"
+            },
+            {
+              "id": "a7313fc7-086c-4f27-8e9e-724198968231",
+              "name": "outcome",
+              "value": "sent to Telegram",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ae0b8d6b-4535-4430-b9cb-1a8a928724e8",
+      "name": "Insert agent_log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every day 07:00": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "report.sql",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "report.sql": {
+      "main": [
+        [
+          {
+            "node": "Report text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report text": {
+      "main": [
+        [
+          {
+            "node": "Telegram report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram report": {
+      "main": [
+        [
+          {
+            "node": "Report line",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report line": {
+      "main": [
+        [
+          {
+            "node": "Insert agent_log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Amsterdam"
+  }
+}
