@@ -35,7 +35,7 @@ Publish WF3 before WF2: this n8n will not publish a workflow whose Execute Workf
 Telegram Trigger (callback_query) → Config → Allowlisted?
   yes → Parse tap → Claim (claim.sql) → Outcome → Sheet rows → Update sheet
                                               → Log rows → Insert agent_log
-                                              → Answer (answerCallbackQuery) → Edit card (outcome added, buttons gone)
+                                              → Answer (answerCallbackQuery) → Card edit → Edit card (outcome added, buttons gone)
   no  → Refused line → Answer refused ("Not authorised", alert) · Log refused
 ```
 

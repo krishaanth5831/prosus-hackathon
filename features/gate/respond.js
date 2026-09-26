@@ -28,7 +28,8 @@ function parseTap(update) {
 }
 
 // outcome(tap, rows claim.sql returned, now) -> {sheet: C5 updates, log: C8 lines, answer: the toast, edit: the card's new text}
-// The edit keeps the card's text, adds what happened and drops the buttons.
+// The edit keeps the card's text, adds what happened and drops the buttons. A tap that claimed nothing gets the toast
+// only (edit null): on a double tap the winning tap edits the card, and a second edit could overwrite its outcome.
 function outcome(t, rows, now = new Date()) {
   const got = (rows || []).filter((r) => r && r.sortie_id);
   const at = `${utc(now)} UTC`, here = local(now);
@@ -36,7 +37,7 @@ function outcome(t, rows, now = new Date()) {
   if (!t.valid || !got.length) {
     const line = t.valid ? 'Already answered. Nothing changed.' : 'Unknown button. Nothing changed.';
     const target = !t.valid ? 'BUTTON' : t.batch ? `INCIDENT ${t.incident_id}` : t.sortie_id;
-    return { sheet: [], answer: line, edit: card(line), log: [{ workflow: 'WF6', action: `IGNORE TAP ${target}`,
+    return { sheet: [], answer: line, edit: null, log: [{ workflow: 'WF6', action: `IGNORE TAP ${target}`,
       reason: `${t.who} tapped ${t.valid ? 'a card that was already answered' : 'a button AirGuard does not know'}`,
       outcome: 'nothing changed' }] };
   }

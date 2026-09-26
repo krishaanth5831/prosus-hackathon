@@ -86,15 +86,15 @@ test('batch buttons: every held sortie of the incident at once, one threshold li
   assert.match(fa.edit, /↩️ False alarm by Duty at 23:41: 4 sorties back to PLANNED\. Cell 54\.5_20\.5 threshold now 0\.40, incident 41 closed\.$/);
 });
 
-test('already answered or unknown button: nothing changes, the card says so', () => {
+test('already answered or unknown button: nothing changes, a toast only, the card is left to the tap that won', () => {
   for (const empty of [[], [{ success: true }], [{}]]) { // what the Postgres node gives when nothing was claimed
     const o = outcome(parseTap(KEEP), empty, NOW);
-    assert.deepEqual([o.sheet, o.answer], [[], 'Already answered. Nothing changed.']);
+    assert.deepEqual([o.sheet, o.answer, o.edit], [[], 'Already answered. Nothing changed.', null]);
     assert.deepEqual(o.log, [{ workflow: 'WF6', action: 'IGNORE TAP T-001', reason: 'human:Duty tapped a card that was already answered', outcome: 'nothing changed' }]);
   }
   assert.equal(outcome(parseTap(BATCH_KEEP), [], NOW).log[0].action, 'IGNORE TAP INCIDENT 41');
   const bad = outcome(parseTap({ callback_query: { ...KEEP.callback_query, data: 'zz' } }), [], NOW);
-  assert.deepEqual([bad.answer, bad.log[0].action], ['Unknown button. Nothing changed.', 'IGNORE TAP BUTTON']);
+  assert.deepEqual([bad.answer, bad.edit, bad.log[0].action], ['Unknown button. Nothing changed.', null, 'IGNORE TAP BUTTON']);
 });
 
 test('refusedLine: C8 line without the stranger\'s name or id (agent_log is public)', () => {

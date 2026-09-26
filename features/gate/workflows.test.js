@@ -118,7 +118,11 @@ test('WF6 Respond export: the only Telegram Trigger, allowlist first, claim → 
   assert.deepEqual([next(wf, 'Parse tap'), next(wf, 'Claim'), next(wf, 'Outcome')], [['Claim'], ['Outcome'], ['Sheet rows', 'Log rows', 'Answer']]);
   const ys = ['Sheet rows', 'Log rows', 'Answer'].map((n) => node(wf, n).position[1]);
   assert.deepEqual([...ys].sort((a, b) => a - b), ys, 'v1 order: sheet, then log, then answer');
-  assert.deepEqual([next(wf, 'Sheet rows'), next(wf, 'Log rows'), next(wf, 'Answer')], [['Update sheet'], ['Insert agent_log'], ['Edit card']]);
+  assert.deepEqual([next(wf, 'Sheet rows'), next(wf, 'Log rows'), next(wf, 'Answer'), next(wf, 'Card edit')],
+    [['Update sheet'], ['Insert agent_log'], ['Card edit'], ['Edit card']]);
+  assert.match(node(wf, 'Card edit').parameters.jsCode, /return edit \? \[\{ json: \{ edit \} \}\] : \[\];/,
+    'a tap that claimed nothing leaves the card to the tap that won');
+  assert.equal(node(wf, 'Edit card').parameters.text, '={{ $json.edit }}');
   const claim = node(wf, 'Claim');
   assert.equal(claim.parameters.query, text('claim.sql'));
   assert.equal(claim.parameters.options.queryReplacement, '={{ $json.params }}', 'one array: values with commas stay whole');
