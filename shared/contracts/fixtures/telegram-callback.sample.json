@@ -1,0 +1,162 @@
+[
+  {
+    "update_id": 912400101,
+    "callback_query": {
+      "id": "4410921783002811001",
+      "from": {
+        "id": 111111111,
+        "is_bot": false,
+        "first_name": "Duty",
+        "username": "duty_officer_demo",
+        "language_code": "en"
+      },
+      "message": {
+        "message_id": 201,
+        "from": {
+          "id": 7000000001,
+          "is_bot": true,
+          "first_name": "AirGuard",
+          "username": "airguard_demo_bot"
+        },
+        "chat": {
+          "id": 111111111,
+          "first_name": "Duty",
+          "username": "duty_officer_demo",
+          "type": "private"
+        },
+        "date": 1790457000,
+        "text": "⛔ HOLD · T-001 · 3rd Border Drone Sqn (DEMO, fictional) · launch 23:35\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held. Needs your call. It never says safe."
+      },
+      "chat_instance": "-3215468795123456789",
+      "data": "k|T-001|42"
+    }
+  },
+  {
+    "update_id": 912400102,
+    "callback_query": {
+      "id": "4410921783002811002",
+      "from": {
+        "id": 111111111,
+        "is_bot": false,
+        "first_name": "Duty",
+        "username": "duty_officer_demo",
+        "language_code": "en"
+      },
+      "message": {
+        "message_id": 202,
+        "from": {
+          "id": 7000000001,
+          "is_bot": true,
+          "first_name": "AirGuard",
+          "username": "airguard_demo_bot"
+        },
+        "chat": {
+          "id": 111111111,
+          "first_name": "Duty",
+          "username": "duty_officer_demo",
+          "type": "private"
+        },
+        "date": 1790457000,
+        "text": "⛔ HOLD · T-001 · 3rd Border Drone Sqn (DEMO, fictional) · launch 23:35\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held. Needs your call. It never says safe."
+      },
+      "chat_instance": "-3215468795123456789",
+      "data": "l|T-001|42"
+    }
+  },
+  {
+    "update_id": 912400103,
+    "callback_query": {
+      "id": "4410921783002811003",
+      "from": {
+        "id": 111111111,
+        "is_bot": false,
+        "first_name": "Duty",
+        "username": "duty_officer_demo",
+        "language_code": "en"
+      },
+      "message": {
+        "message_id": 203,
+        "from": {
+          "id": 7000000001,
+          "is_bot": true,
+          "first_name": "AirGuard",
+          "username": "airguard_demo_bot"
+        },
+        "chat": {
+          "id": 111111111,
+          "first_name": "Duty",
+          "username": "duty_officer_demo",
+          "type": "private"
+        },
+        "date": 1790457000,
+        "text": "⛔ HOLD · T-001 · 3rd Border Drone Sqn (DEMO, fictional) · launch 23:35\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held. Needs your call. It never says safe."
+      },
+      "chat_instance": "-3215468795123456789",
+      "data": "f|T-001|42"
+    }
+  },
+  {
+    "update_id": 912400104,
+    "callback_query": {
+      "id": "4410921783002811004",
+      "from": {
+        "id": 111111111,
+        "is_bot": false,
+        "first_name": "Duty",
+        "username": "duty_officer_demo",
+        "language_code": "en"
+      },
+      "message": {
+        "message_id": 204,
+        "from": {
+          "id": 7000000001,
+          "is_bot": true,
+          "first_name": "AirGuard",
+          "username": "airguard_demo_bot"
+        },
+        "chat": {
+          "id": 111111111,
+          "first_name": "Duty",
+          "username": "duty_officer_demo",
+          "type": "private"
+        },
+        "date": 1790457000,
+        "text": "⛔ BRAKE · incident 41 · 4 sorties held\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held all of them. Needs your call. It never says safe."
+      },
+      "chat_instance": "-3215468795123456789",
+      "data": "bk|41"
+    }
+  },
+  {
+    "update_id": 912400105,
+    "callback_query": {
+      "id": "4410921783002811005",
+      "from": {
+        "id": 111111111,
+        "is_bot": false,
+        "first_name": "Duty",
+        "username": "duty_officer_demo",
+        "language_code": "en"
+      },
+      "message": {
+        "message_id": 205,
+        "from": {
+          "id": 7000000001,
+          "is_bot": true,
+          "first_name": "AirGuard",
+          "username": "airguard_demo_bot"
+        },
+        "chat": {
+          "id": 111111111,
+          "first_name": "Duty",
+          "username": "duty_officer_demo",
+          "type": "private"
+        },
+        "date": 1790457000,
+        "text": "⛔ BRAKE · incident 41 · 4 sorties held\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held all of them. Needs your call. It never says safe."
+      },
+      "chat_instance": "-3215468795123456789",
+      "data": "bf|41"
+    }
+  }
+]

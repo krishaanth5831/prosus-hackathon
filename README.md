@@ -1,7 +1,9 @@
 # prosus-hackathon
 
-Team of 5. Idea TBD — this repo currently holds **how we work**, not what we build.
-The code structure gets generated on day 1 once we pick the idea (see `docs/SETUP_PROMPT.md`).
+**AirGuard: an autonomous pre-launch sortie guard that uses aircraft overhead as GPS-jamming sensors and holds, reschedules or cancels drone sorties before they launch into jammed airspace. It never says "safe".**
+
+Apify (collection) → n8n Cloud (all logic) → Supabase Postgres → Google Sheet (sortie plan) → Telegram (human gate) → Leaflet map on Vercel.
+What and why: `docs/prd.md` · how: `docs/plan.md` · contracts: `shared/contracts/CONTRACTS.md` · slices: `docs/TASKS.md` · rules for Claude Code: `CLAUDE.md`.
 
 ---
 
@@ -11,6 +13,7 @@ The code structure gets generated on day 1 once we pick the idea (see `docs/SETU
 git clone git@github.com:krishaanth5831/prosus-hackathon.git
 cd prosus-hackathon
 cp .env.example .env     # ask Krish for the real values
+npm test                 # Node >= 20, zero dependencies
 ```
 
 Then: **claim a task on the board before you start it.** Nothing else in this README matters as much as that line.

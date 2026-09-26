@@ -1,0 +1,11 @@
+{
+  "name": "prosus-hackathon",
+  "private": true,
+  "description": "AirGuard: autonomous pre-launch sortie guard that uses aircraft overhead as GPS-jamming sensors",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
