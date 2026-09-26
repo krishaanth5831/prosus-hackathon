@@ -2,8 +2,8 @@
   "actorSpecification": 1,
   "name": "airguard-adsb-collector",
   "title": "AirGuard ADS-B collector",
-  "description": "Owner: Person A (see CLAUDE.md). STUB. Polls adsb.lol (fallback adsb.fi) every 5 min; output per shared/contracts/CONTRACTS.md C2.",
-  "version": "0.0",
+  "description": "Polls adsb.lol (fallback adsb.fi) at 3 Baltic points every 5 min. One dataset row per aircraft with its GPS integrity (NIC/NACp), plus a RUN_META record.",
+  "version": "0.1",
   "input": "./input_schema.json",
   "dockerfile": "../Dockerfile"
 }
