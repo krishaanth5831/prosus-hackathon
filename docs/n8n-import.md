@@ -63,11 +63,11 @@ The first node after every trigger is a Set node called **Config**. It holds non
 | Workflow | ID |
 |---|---|
 | WF1 Collect | `P3O5FiMEeifY2hjQ` |
-| WF2 Detect | _pending_ |
-| WF3 Gate | _pending_ |
-| WF4 Heal | _pending_ |
-| WF5 Report | _pending_ |
-| WF6 Respond | _pending_ |
+| WF2 Detect | `KPCB3810HyAh8FUm` |
+| WF3 Gate | `Le4bs7kBbUkQs0QD` |
+| WF4 Heal | `URm7RA1tXpvjQySq` |
+| WF5 Report | `smqvjqaMQhKFdwbg` (active, 07:00) |
+| WF6 Respond | `Hgy90vEntiE4A95h` |
 
 ## Map (Vercel)
 
