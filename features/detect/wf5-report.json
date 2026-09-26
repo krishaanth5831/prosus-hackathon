@@ -91,9 +91,10 @@
       ],
       "parameters": {
         "chatId": "={{ $('Config').first().json.telegram_chat_id }}",
-        "text": "={{ $json.text }}",
+        "text": "={{ $json.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "credentials": {

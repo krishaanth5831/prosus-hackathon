@@ -55,3 +55,14 @@ test('WF5 Report export', () => {
   assert.equal(node(wf, 'report.sql').parameters.query, text('sql/report.sql'));
   assert.ok(node(wf, 'Report text').parameters.jsCode.startsWith(text('reportText.js')), 'Code node = reportText.js + glue');
 });
+
+test('Telegram nodes send HTML with escaped text (cell ids contain "_", which Markdown eats)', () => {
+  for (const f of ['wf2-detect.json', 'wf5-report.json']) {
+    const tg = load(f).nodes.filter((n) => n.type === 'n8n-nodes-base.telegram');
+    assert.ok(tg.length > 0, `${f} has a Telegram node`);
+    for (const n of tg) {
+      assert.equal(n.parameters.additionalFields?.parse_mode, 'HTML', `${f} ${n.name}: parse_mode HTML`);
+      assert.ok(n.parameters.text.includes(".replace(/</g, '&lt;')"), `${f} ${n.name}: text is HTML-escaped`);
+    }
+  }
+});
