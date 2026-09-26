@@ -12,13 +12,13 @@ Specs: `docs/plan.md` · contracts: `shared/contracts/CONTRACTS.md`.
 | **A5** | Apify schedule */5 + success/failure webhooks | Person A | `features/collect/` | `observations` grows on 3 consecutive cycles, unattended | todo |
 | **A6** | WF4 Heal (`wf4-heal.json`): Error Trigger, Apify-failure webhook, stale watchdog | Person A | `features/collect/` | A broken node produces a log line + Telegram message | todo |
 | **A7** | Prove healing: forced failover + 20 min paused schedule | Person A | `features/collect/evidence/` | Failover line, stale alarm on the phone, "fresh again" line, all saved as evidence | todo |
-| **B1** | decide.js + decide.test.js (plan §5.3, every §8 case) | Person B `ShivamK12345` | `features/gate/` | `npm test` green on L1, L2, L3, L4, WATCH, UNVERIFIED, BRAKE, dedupe, ignored statuses | todo |
+| **B1** | decide.js + decide.test.js (plan §5.3, every §8 case) | Person B `Atharva-cloud-1` | `features/gate/` | `npm test` green on L1, L2, L3, L4, WATCH, UNVERIFIED, BRAKE, dedupe, ignored statuses | todo |
 | **B2** | gen-sorties.js (+ `--fixture` mode) → sorties.demo.csv | Person B | `features/gate/` | Fixture mode writes 48 C5-valid sorties (12/24/12) | todo |
 | **B3** | Telegram: team user IDs, chat id, allowlist | Person B | `features/gate/` | Config values for TELEGRAM_CHAT_ID + allowlist handed to Krish | todo |
 | **B4** | WF3 Gate (`wf3-gate.json`), decisions inserted before acting | Person B | `features/gate/` | A fixture incident changes a sheet row and a HOLD card arrives on the phone | todo |
 | **B5** | WF6 Respond (`wf6-respond.json`), allowlist + C7 parsing | Person B | `features/gate/` | A tap on Keep / Launch / False alarm changes the sheet; a stranger's tap is refused | todo |
 | **B6** | End-to-end on test cell `89.5_179.0` with T-001..T-005 | Person B | `features/gate/evidence/` | Every level seen on the sheet + phone, second run does nothing, proof saved, test rows deleted | todo |
-| **C1** | SQL: detect, lift, close, report, investigate | Person C `Atharva-cloud-1` | `features/detect/sql/` | Each file runs clean against the schema | todo |
+| **C1** | SQL: detect, lift, close, report, investigate | Person C `ShivamK12345` | `features/detect/sql/` | Each file runs clean against the schema | todo |
 | **C2** | detect_fixture.sql + run-fixtures.sh on test cell `89.5_179.5` | Person C | `features/detect/fixtures/` | Script prints pass for 1 vs 2 checks, n_total < 3, dedupe, re-arm, MAY-LIFT coverage; exits 0 | todo |
 | **C3** | WF2 Detect (`wf2-detect.json`), Execute WF3 left disabled | Person C | `features/detect/` | An incident opens from data with an agent_log line; MAY-LIFT sends a Telegram message | todo |
 | **C4** | WF5 Report (`wf5-report.json`), 07:00 Europe/Amsterdam | Person C | `features/detect/` | A manual run puts the morning report on the phone | todo |
