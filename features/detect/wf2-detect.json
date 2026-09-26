@@ -211,19 +211,17 @@
       "name": "Execute WF3",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
+      "executeOnce": true,
       "position": [
         1100,
         460
       ],
-      "disabled": true,
-      "executeOnce": true,
-      "notes": "wire at integration",
-      "notesInFlow": true,
       "parameters": {
         "workflowId": {
           "__rl": true,
           "mode": "list",
-          "value": ""
+          "value": "Le4bs7kBbUkQs0QD",
+          "cachedResultName": "AirGuard WF3 Gate"
         },
         "options": {}
       }

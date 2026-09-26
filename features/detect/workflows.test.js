@@ -42,8 +42,8 @@ test('WF2 Detect export', () => {
   }
   assert.ok(node(wf, 'agent_log lines').parameters.jsCode.startsWith(text('logLines.js')), 'Code node = logLines.js + glue');
   assert.deepEqual(next(wf, 'MAY-LIFT?'), ['Telegram MAY-LIFT']);
-  const wf3 = node(wf, 'Execute WF3');
-  assert.deepEqual([wf3.disabled, wf3.notes], [true, 'wire at integration']);
+  const wf3 = node(wf, 'Execute WF3');   // wired at integration (Krish)
+  assert.deepEqual([!!wf3.disabled, wf3.parameters.workflowId.cachedResultName], [false, 'AirGuard WF3 Gate']);
 });
 
 test('WF5 Report export', () => {
