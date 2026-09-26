@@ -129,6 +129,20 @@ test('C4 cell_status rows', () => {
   }
 });
 
+test('cell_status rows from the same cycle match the actor fixture', () => {
+  const rows = json('actor-output.sample.json');
+  const counts = {};
+  for (const r of rows) {
+    if (r.nic === null && r.nac_p === null) continue; // not a sensor
+    const c = (counts[cellId(r.lat, r.lon)] ??= { n_total: 0, n_degraded: 0 });
+    c.n_total++;
+    if ((r.nic ?? 99) < 7 || (r.nac_p ?? 99) < 8) c.n_degraded++;
+  }
+  const status = json('cell_status.sample.json').filter((s) => s.ts === rows[0].ts);
+  assert.deepEqual(Object.keys(counts).sort(), status.map((s) => s.cell_id).sort());
+  for (const s of status) assert.deepEqual(counts[s.cell_id], { n_total: s.n_total, n_degraded: s.n_degraded }, s.cell_id);
+});
+
 test('C5 sorties sheet', () => {
   const [header, ...rows] = parseCsv(fx('sorties.sample.csv'));
   assert.deepEqual(header,

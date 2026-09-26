@@ -7,9 +7,9 @@ function genSorties(cells, now = new Date()) {
   throw new Error('TODO: Person B (genSorties)');
 }
 
-if (typeof module !== 'undefined') module.exports = { genSorties };
-
 if (typeof require !== 'undefined' && require.main === module) {
   // TODO Person B: read cells (Supabase REST, or shared/contracts/fixtures/cell_status.sample.json with --fixture), write the CSV
   throw new Error('TODO: Person B (gen-sorties CLI)');
 }
+
+if (typeof module !== 'undefined') module.exports = { genSorties };
