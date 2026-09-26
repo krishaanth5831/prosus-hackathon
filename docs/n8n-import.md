@@ -44,13 +44,15 @@ The first node after every trigger is a Set node called **Config**. It holds non
 
 | Workflow | Field | Value |
 |---|---|---|
-| WF1 | `apify_api` | `https://api.apify.com/v2` (already set) |
+| WF1 | `apify_api`, `actor_id` | `https://api.apify.com/v2` and the Apify actor id (already set; `actor_id` added in #28 so WF1 can verify every run with the Apify API) |
 | WF2 | `telegram_chat_id` | `TELEGRAM_CHAT_ID` (repo placeholder `SET_TELEGRAM_CHAT_ID`) |
 | WF5 | `telegram_chat_id` | `TELEGRAM_CHAT_ID` (repo placeholder `SET_TELEGRAM_CHAT_ID`) |
 | WF3, WF6 | chat id, allowlist (`TELEGRAM_ALLOWED_USER_IDS`), sheet id (`GOOGLE_SHEET_ID`) | see `features/gate/` |
 | WF4 | chat id | see `features/collect/` |
 
-## 4. Settings and wiring (integration, Krish)
+## 4. Settings and wiring (integration, Krish): done
+
+> Done 2026-09-26 21:36 UTC: WF1 → WF2 → WF3 wired, error workflow = WF4 everywhere, all six active. n8n only saves a caller once its sub-workflow is published, so publish WF2 before saving WF1.
 
 1. Every workflow → **⋯** → **Settings** → **Error workflow** = `AirGuard WF4 Heal` → Save.
 2. WF1 node `Execute WF2`: pick `AirGuard WF2 Detect`, then enable the node (right-click → **Activate**).
@@ -58,16 +60,16 @@ The first node after every trigger is a Set node called **Config**. It holds non
 4. The instance timezone is Europe/Amsterdam. WF2 and WF5 also set it per workflow.
 5. Activate WF1, WF4, WF5 and WF6. WF2 and WF3 are only ever called, so they don't need activating.
 
-### Workflow IDs (fill in after import)
+### Workflow IDs
 
 | Workflow | ID |
 |---|---|
 | WF1 Collect | `P3O5FiMEeifY2hjQ` |
-| WF2 Detect | _pending_ |
-| WF3 Gate | _pending_ |
-| WF4 Heal | _pending_ |
-| WF5 Report | _pending_ |
-| WF6 Respond | _pending_ |
+| WF2 Detect | `KPCB3810HyAh8FUm` |
+| WF3 Gate | `Le4bs7kBbUkQs0QD` |
+| WF4 Heal | `URm7RA1tXpvjQySq` |
+| WF5 Report | `smqvjqaMQhKFdwbg` |
+| WF6 Respond | `Hgy90vEntiE4A95h` |
 
 ## Map (Vercel)
 
