@@ -1,0 +1,43 @@
+<pasted_content id="aaa9">
+You are deploying Person C's AirGuard map (slice C5) to Vercel. It is one static file, with no build step.
+
+1. Get the code:
+   - If PRs #8, #9, #10, #11, #14, #15 and #16 are merged: `git switch dev && git pull`.
+   - Otherwise: `git fetch && git switch ShivamK12345/c7-story` (it contains everything from C1 to C7).
+   - Check that `features/map/index.html` and `features/map/vercel.json` exist.
+
+2. Write the runtime config from .env. The Supabase URL and anon key must NEVER be committed:
+   set -a; . ./.env; set +a
+   printf 'window.AIRGUARD = { url: "%s", key: "%s" };\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > features/map/config.js
+   Then run `git status` and confirm config.js shows as untracked. Do not `git add` it.
+
+3. Deploy only the map folder, as its own Vercel project named `airguard-map`:
+   cd features/map && npx vercel --prod --yes --name airguard-map; cd ../..
+   (Log in with `npx vercel login` first if needed. If `--name` is rejected, answer the prompts: new project, name `airguard-map`, root `./`, no build command, no output directory.)
+
+4. Delete the config right away, whether or not the deploy worked:
+   rm features/map/config.js
+
+5. Verify the production URL:
+   - `curl -s <URL>/config.js` returns the window.AIRGUARD line. It is meant to be public: the anon key is select-only through RLS.
+   - Open `<URL>` in a browser. You should see grey hatched and outlined cells over the Baltic, "0 JAMMED …" counts, and the agent log panel filled with real WF1/WF4 lines.
+   - Open `<URL>/?fixture=1`. You should see the "FIXTURE MODE" banner and 2 red cells near Kaliningrad plus 1 purple cell in the Gulf of Finland.
+   - Check there is no green anywhere on the page.
+   - `npm test` stays green, and `git status` shows no config.js.
+
+6. Two small hot-file changes Person C asked for. You own these files, so put them in one PR into dev:
+   - `.gitignore`: add `features/map/config.js`, as a second guard against committing the key.
+   - `.gitattributes` (new): `*.sh text eol=lf`. With autocrlf on, a Windows checkout of `features/detect/fixtures/run-fixtures.sh` otherwise breaks under bash.
+
+7. Reply with the production URL and a phone-width screenshot of the live map. Person C (ShivamK12345) will add the URL to the README, docs/TASKS.md and docs/evidence.md.
+</pasted_content id="aaa9">
+
+---
+
+<task-notification>
+<task-id>b3m951xkq</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-krishaanth-Desktop-personal-projects-github-prosus-hackathon/326c1420-bcbd-405e-81de-4997bcc868d9/tasks/b3m951xkq.output</output-file>
+<status>completed</status>
+<summary>Background command "Start Vercel device login and wait for approval" completed (exit code 0)</summary>
+</task-notification>
