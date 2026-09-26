@@ -63,7 +63,7 @@ What and why: (C) PRD — AirGuard · Research: 00 Research/JamWatch — GPS Jam
 - **Hot files:** Krish owns the database schema, the shared contracts and `CLAUDE.md`. A merged migration is never edited; changes go in a new file.
 - **Releases:** every time the demo works end to end, `dev` is merged into `main` and tagged `demo-vN`.
 
-K7's local clone lives at `03 System/prosus-hackathon/` (gitignored from the vault).
+K7's local clone lives at `~/Desktop/personal_projects/github/prosus-hackathon/`, with its gitignored `.env`. The old vault clone in `03 System/` was removed on 26 Sep.
 
 ```
 prosus-hackathon/
@@ -194,11 +194,11 @@ Status is one of `PLANNED`, `RESCHEDULED`, `CANCELLED`, `HOLD` or `LAUNCH_APPROV
 ### 5.1 Apify actor: `features/collect/actor/src/main.js`
 
 ```js
-import { Actor } from 'apify';
+import { Actor, log } from 'apify';
 
 await Actor.init();
 const input = (await Actor.getInput()) ?? {};
-const points = input.points ?? [
+const points = input.points?.length ? input.points : [
   { lat: 56.5, lon: 21.0, nm: 250 },   // Latvia/Lithuania coast + Kaliningrad approach
   { lat: 59.8, lon: 25.0, nm: 200 },   // Gulf of Finland / Estonia
   { lat: 54.5, lon: 18.5, nm: 150 },   // Gdańsk / Kaliningrad west
@@ -208,18 +208,21 @@ const SOURCES = [
   { name: 'adsb.fi',  url: (p) => `https://opendata.adsb.fi/api/v2/lat/${p.lat}/lon/${p.lon}/dist/${p.nm}` },
 ];
 const sources = input.forceFallback ? SOURCES.slice(1) : SOURCES;
+// adsb.lol answers 403 to Node's default user-agent ("node"), so say who we are
+const headers = { 'user-agent': 'airguard-adsb-collector/0.1 (+https://github.com/krishaanth5831/prosus-hackathon)' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ts = new Date().toISOString();
 const seen = new Map();          // dedupe by hex: the query circles overlap
-const errors = [];
+const errors = input.forceFallback ? ['forceFallback: adsb.lol skipped on purpose'] : [];
 let used = null;
 
 for (const src of sources) {
   for (const p of points) {
     try {
-      const res = await fetch(src.url(p), { signal: AbortSignal.timeout(15000) });
+      const res = await fetch(src.url(p), { headers, signal: AbortSignal.timeout(15000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const { ac = [] } = await res.json();
+      const body = await res.json();
+      const ac = body.ac ?? body.aircraft ?? [];   // adsb.lol answers {ac}, adsb.fi answers {aircraft}
       for (const a of ac) if (a.hex && a.lat != null && (a.seen_pos ?? 0) <= 60) seen.set(a.hex, a);
     } catch (e) { errors.push(`${src.name} @${p.lat},${p.lon}: ${e.message}`); }
     await sleep(1500);
@@ -235,14 +238,20 @@ const rows = [...seen.values()].map((a) => ({
 await Actor.pushData(rows.length ? rows : [{ ts, empty: true, errors }]);
 await Actor.setValue('RUN_META', { ts, source: used, aircraft: rows.length,
   failover: used !== null && used !== 'adsb.lol', errors });
+log.info(`${rows.length} aircraft from ${used ?? 'no source'}`, { errors });
 await Actor.exit();
 ```
 
-**Apify setup:**
-- **Schedule:** `*/5 * * * *`.
-- **Webhook 1:** `ACTOR.RUN.SUCCEEDED` → WF1 URL.
-- **Webhook 2:** `ACTOR.RUN.FAILED` and `ACTOR.RUN.TIMED_OUT` → WF4 URL.
-- **Deploy:** `apify push` from the actor folder. Apify builds it, so no local npm install is needed.
+**Source quirks (checked 26 Sep):**
+- adsb.lol answers **403** to Node's default user-agent `node`, so the actor sends its own. It returns the aircraft under `ac`.
+- adsb.fi uses the same readsb fields but returns the aircraft under **`aircraft`**, not `ac`.
+
+**Apify setup** (`features/collect/apify-setup.sh` creates all of it and skips what exists):
+- **Schedule:** `*/5 * * * *` UTC, exclusive, so two runs never overlap.
+- **Run options:** 256 MB, 120 s timeout (the actor default and the schedule). Apify's default of 4096 MB / 3600 s would burn the $5 free credit. At 256 MB a run costs about $0.0007, so about $0.20/day.
+- **Webhook 1:** `ACTOR.RUN.SUCCEEDED` → `{N8N_BASE_URL}/webhook/airguard-apify` (WF1).
+- **Webhook 2:** `ACTOR.RUN.FAILED` and `ACTOR.RUN.TIMED_OUT` → `{N8N_BASE_URL}/webhook/airguard-apify-failed` (WF4).
+- **Deploy:** `npx apify-cli push` from the actor folder. Apify builds it, so no local npm install is needed.
 
 ### 5.2 `features/collect/binCells.js`
 
@@ -406,10 +415,10 @@ Every workflow's settings point **Error workflow → WF4**.
 
 | WF | Trigger | Nodes, in order | Done when |
 |---|---|---|---|
-| **WF1 Collect** | Webhook `POST /airguard/apify` (respond immediately) | 1. HTTP GET `datasets/{resource.defaultDatasetId}/items?clean=true`<br>2. HTTP GET `key-value-stores/{…}/records/RUN_META`<br>3. Code `binCells`<br>4. IF 0 cells → log *"no data from any source: every cell UNKNOWN"* and stop<br>5. Postgres insert `observations`<br>6. IF `failover` → log *"primary down (errors), switched to adsb.fi"*<br>7. Execute WF2 | Rows land every 5 min with nobody touching it |
+| **WF1 Collect** | Webhook `POST /webhook/airguard-apify` (respond immediately) | 1. HTTP GET `key-value-stores/{resource.defaultKeyValueStoreId}/records/RUN_META`<br>2. HTTP GET `datasets/{resource.defaultDatasetId}/items?clean=true` (second, so the Code node's `$input.all()` is exactly the aircraft)<br>3. Code `binCells`<br>4. IF 0 cells → log *"no data from any source: every cell UNKNOWN"* and stop<br>5. Postgres insert `observations`<br>6. IF `failover` → log *"primary adsb.lol unavailable (errors), switched to adsb.fi"*<br>7. Execute WF2 | Rows land every 5 min with nobody touching it |
 | **WF2 Detect** | Execute Workflow Trigger | 1. Postgres `detect.sql`<br>2. Postgres `lift.sql` (both statements)<br>3. One `agent_log` line per opened / may-lift / closed incident. MAY-LIFT → Telegram: *"cell X quiet 30 min with coverage. HOLDs there may be lifted by you."*<br>4. Execute WF3 | An incident opens on its own from real data |
 | **WF3 Gate** | Execute Workflow Trigger | 1. Sheets: read all rows<br>2. Postgres `select * from cell_status`<br>3. Postgres done keys (last 2 days)<br>4. Postgres recently jammed cells (`opened_at > now()-6h or status <> 'closed'`)<br>5. Code `decide`<br>6. **Insert into `decisions` first** (`on conflict (key) do nothing returning`) and continue only for returned rows. Two runs that overlap therefore can't both act.<br>7. Switch on level:<br>&nbsp;&nbsp;• **L1/L2** → update sheet row → log → Telegram FYI<br>&nbsp;&nbsp;• **L3/L4** → sheet status HOLD → LLM briefing (template fallback) → Telegram message with inline keyboard → log<br>&nbsp;&nbsp;• **BRAKE** → all rows HOLD → one batch message → log<br>&nbsp;&nbsp;• **WATCH / UNVERIFIED** → log (+ Telegram for UNVERIFIED) | A real incident changes a sheet row and a card arrives |
-| **WF4 Heal** | Error Trigger · Webhook `/airguard/apify-failed` · Schedule every 5 min | **Error:** log *"WFx failed at node Y: msg"* + Telegram.<br>**Apify failure:** log + Telegram.<br>**Watchdog:** `max(observations.ts)` older than 15 min and not already flagged → log *"data stale N min: every cell UNKNOWN, HOLD logic still active"* + Telegram; log again when data is fresh | One real failover and one stale alarm in `agent_log` |
+| **WF4 Heal** | Error Trigger · Webhook `POST /webhook/airguard-apify-failed` · Schedule every 5 min | **Error:** log *"WFx failed at node Y: msg"* + Telegram.<br>**Apify failure:** log + Telegram.<br>**Watchdog:** `max(observations.ts)` older than 15 min and not already flagged → log *"data stale N min: every cell UNKNOWN, HOLD logic still active"* + Telegram; log again when data is fresh | One real failover and one stale alarm in `agent_log` |
 | **WF5 Report** | Schedule 07:00 | 1. Postgres `report.sql`<br>2. (LLM phrasing, template fallback)<br>3. Telegram | The report arrives on the phone |
 | **WF6 Respond** | Telegram Trigger (callback_query) | 1. IF `from.id` not in the allowlist → answer "not authorised", log, stop<br>2. Parse `callback_data` = `k\|S-017\|42` (action, sortie, decision id) or `bk\|inc` / `bf\|inc` for a batch<br>3. Switch:<br>&nbsp;&nbsp;• **k (Keep HOLD)** → note only<br>&nbsp;&nbsp;• **l (Launch anyway)** → status `LAUNCH_APPROVED`<br>&nbsp;&nbsp;• **f (False alarm)** → status `PLANNED`, `baselines` threshold +0.05 (max 0.6), incident closed with *"[false alarm: name]"*<br>4. Sheet `decided_by = human:<name>`, `decisions.human_answer`<br>5. Log<br>6. `answerCallbackQuery` + edit the message to show the outcome (buttons gone) | A tap on the phone changes the sheet |
 
@@ -474,7 +483,7 @@ After each step works: export the workflow into its feature folder and open a PR
 | `decide` | routine+slot → L1 · routine, no slot → L3 · low → L2 · priority → L3 · spoof → L4 even if low · launch 5 h out → WATCH · UNKNOWN <1 h → UNVERIFIED · UNKNOWN + recently jammed → L3 · incident on 30% of upcoming → BRAKE · key already done → nothing · CANCELLED/HOLD sorties ignored · past launches ignored | `features/gate/decide.test.js` |
 | detect/lift SQL | 1 vs 2 checks · n_total < 3 · duplicate prevented · re-arm from may_lift · no MAY-LIFT without coverage | `features/detect/fixtures/run-fixtures.sh` (psql) |
 | Human gate | each of the 3 buttons · batch buttons · non-allowlisted user | Manual, once each |
-| Self-healing | forced fallback · both sources down (bad URLs in input) · paused schedule · a node error | Forced, once each |
+| Self-healing | forced fallback (`forceFallback: true`) · both sources return nothing (`points: [{lat: 89.9, lon: 178.9, nm: 1}]`, test cell `89.5_178.5`) · paused schedule · a node error (`POST {}` to WF1) | Forced, once each. Proof: `features/collect/evidence/` |
 | Authority | no path sets a status to anything "clear"; MAY-LIFT/close never touches the sheet | grep the code + a log check |
 
 ## 9. Failure modes
@@ -512,7 +521,7 @@ The review ran inline, as a single voice: CEO → Eng → DX.
 | 13 | Eng | The brake needs a meaning | Brake = HOLD all (reversible), no cancels or reschedules, one batch card | Taste |
 | 14 | DX | Code nodes can't be tested in n8n | Pure `.js` per feature + colocated `node --test`, zero dependencies | Auto |
 | 15 | DX | Cell IDs like `113_42` mean nothing to a judge | `56.5_21.0` (lower-left corner in degrees); the map draws directly from it | Taste |
-| 16 | DX | The repo would be unreadable from here if it lived on the Desktop | Local clone in `03 System/prosus-hackathon/`, gitignored from the vault | Taste |
+| 16 | DX | The repo would be unreadable from here if it lived on the Desktop | Local clone in `03 System/prosus-hackathon/`, gitignored from the vault. **Superseded 26 Sep:** the clone now lives at `~/Desktop/personal_projects/github/prosus-hackathon/` | Taste |
 
 **Premises still unproven. Check them, don't assume them:**
 1. Jamming seen at airliner altitude is useful early warning for drones.
