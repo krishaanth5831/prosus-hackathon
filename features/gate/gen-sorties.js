@@ -2,6 +2,7 @@
 // Generates 48 demo sorties into features/gate/sorties.demo.csv (C5). Spec: docs/plan.md §6 "Demo sorties".
 // Usage: node features/gate/gen-sorties.js            cells from Supabase observations of the last 6 h (anon key, .env)
 //        node features/gate/gen-sorties.js --fixture  cells from shared/contracts/fixtures/cell_status.sample.json
+//        --min-share=0.5                              lower the plan's 60% coverage bar (low traffic, e.g. at night)
 // The sorties are demo data. The cells they fly through are the ones with real sensor coverage.
 
 const fs = require('node:fs');
@@ -102,13 +103,21 @@ async function main(argv) {
     now = new Date();
     observations = await fetchObservations(url.replace(/\/$/, ''), key, new Date(now.getTime() - 6 * HOUR));
   }
-  const cells = coveredCells(observations);
+  const share = Number((argv.find((a) => a.startsWith('--min-share=')) ?? '=0.6').split('=')[1]);
+  const cycles = new Set(observations.map((o) => o.ts)).size;
+  const cells = coveredCells(observations, share);
+  if (!cells.length) {
+    const closest = coveredCells(observations, 0).sort((a, b) => b.coverage - a.coverage).slice(0, 5)
+      .map((c) => `${c.cell_id} ${Math.round(c.coverage * 100)}%`).join(', ');
+    throw new Error(`no cell has >= 3 aircraft in >= ${Math.round(share * 100)}% of the ${cycles} cycles `
+      + `(closest: ${closest || 'none'}). Run it when traffic is higher, or lower the bar with --min-share=0.5`);
+  }
   const sorties = genSorties(cells, now);
   fs.writeFileSync(OUT, toCsv(sorties));
 
   const routes = (id) => sorties.filter((s) => s.cells.split(';').includes(id)).length;
-  console.log(`${observations.length} observations in ${new Set(observations.map((o) => o.ts)).size} cycles → `
-    + `${cells.length} cells with >= 3 aircraft in >= 60% of the cycles:`);
+  console.log(`${observations.length} observations in ${cycles} cycles → `
+    + `${cells.length} cells with >= 3 aircraft in >= ${Math.round(share * 100)}% of the cycles:`);
   for (const c of [...cells].sort((a, b) => routes(b.cell_id) - routes(a.cell_id)))
     console.log(`  ${c.cell_id.padEnd(11)} coverage ${String(Math.round(c.coverage * 100)).padStart(3)}%  `
       + `on ${String(routes(c.cell_id)).padStart(2)} routes${onBorder(c.cell_id) ? '  border' : ''}`);

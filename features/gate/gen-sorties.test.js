@@ -76,6 +76,7 @@ test('coveredCells: >= 3 aircraft in >= 60% of the cycles; test cells and non-se
     { ts: cycles[4], cell_id: '55.0_21.0', n_total: null }, //                           stale/no sensors: out
   ];
   assert.deepEqual(coveredCells(obs), [{ cell_id: '54.5_20.5', coverage: 0.6 }]);
+  assert.deepEqual(coveredCells(obs, 0.4).map((c) => c.cell_id), ['54.5_20.5', '59.5_25.0'], 'a lower bar (--min-share)');
 });
 
 test('genSorties: border cells start routes first, at most 16 start cells, routes follow covered neighbours', () => {
