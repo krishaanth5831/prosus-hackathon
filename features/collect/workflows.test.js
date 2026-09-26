@@ -39,3 +39,21 @@ test('WF1 Collect export', () => {
   const wf2 = node(wf, 'Execute WF2');
   assert.deepEqual([wf2.disabled, wf2.notes], [true, 'wire at integration']);
 });
+
+test('WF4 Heal export', () => {
+  const wf = load('wf4-heal.json');
+  assert.equal(wf.name, 'AirGuard WF4 Heal');
+  followsC9(wf);
+  const types = wf.nodes.map((n) => n.type);
+  for (const t of ['n8n-nodes-base.errorTrigger', 'n8n-nodes-base.webhook', 'n8n-nodes-base.scheduleTrigger']) {
+    assert.ok(types.includes(t), t);
+  }
+  const hook = wf.nodes.find((n) => n.type === 'n8n-nodes-base.webhook');
+  assert.deepEqual([hook.parameters.path, hook.parameters.responseMode], ['airguard-apify-failed', 'onReceived']);
+  assert.deepEqual(node(wf, 'Every 5 min').parameters.rule.interval, [{ field: 'minutes', minutesInterval: 5 }]);
+  const chat = node(wf, 'Config').parameters.assignments.assignments.find((a) => a.name === 'telegram_chat_id');
+  assert.equal(chat.value, '123456789', 'the export keeps the .env.example dummy; the real chat id is set at import');
+  for (const n of wf.nodes.filter((x) => x.type === 'n8n-nodes-base.telegram')) {
+    assert.equal(n.parameters.additionalFields.parse_mode, 'HTML', `${n.name}: the Markdown default breaks on "_" in cell ids`);
+  }
+});

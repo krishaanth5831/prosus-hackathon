@@ -1,0 +1,788 @@
+{
+  "name": "AirGuard WF4 Heal",
+  "nodes": [
+    {
+      "id": "63eb11ac-68b0-4a11-8431-52c073f4fe71",
+      "name": "Workflow failed",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        100
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "19b3d6c7-334d-4c6b-8c0c-27128d8cd433",
+      "name": "Apify run failed",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "95978c27-c84d-4b46-af15-ed7793fe6bec",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "airguard-apify-failed",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "e7f53df4-87a1-437a-b629-508de24b3b97",
+      "name": "Every 5 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        500
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c292588-ec6b-4d42-b91f-8c6b0611a90d",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c31b11de-102e-4d94-a4cd-15c206351fae",
+              "name": "telegram_chat_id",
+              "value": "123456789",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "2581442e-1b34-4e11-adea-603f4236a823",
+      "name": "Which trigger?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "4c8fbbe6-daff-45f2-8f98-7ca842fd3479",
+                    "leftValue": "={{ !!$json.workflow }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "workflow failed"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a8d73d8a-7440-4c4f-a6dd-5d47c90978ee",
+                    "leftValue": "={{ !!$json.body }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "apify run failed"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "watchdog"
+        }
+      }
+    },
+    {
+      "id": "bf8890b3-bd7e-44cc-b940-8ea03de41541",
+      "name": "Failure line",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        700,
+        100
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d4cfa7c2-c963-4bf3-9ada-26a2e98c6f2a",
+              "name": "workflow",
+              "value": "WF4",
+              "type": "string"
+            },
+            {
+              "id": "7a551708-6e50-418b-92d8-5b6eda79b181",
+              "name": "action",
+              "value": "={{ 'ALERT ' + ($json.workflow.name.match(/WF\\d/) || [$json.workflow.name])[0].toUpperCase() + ' FAILURE' }}",
+              "type": "string"
+            },
+            {
+              "id": "90319526-879f-4bbf-8a5c-23c958576653",
+              "name": "reason",
+              "value": "={{ ($json.workflow.name.match(/WF\\d/) || [$json.workflow.name])[0] + ' failed at node ' + ($json.execution ? $json.execution.lastNodeExecuted : 'trigger') + ': ' + String(($json.execution || $json.trigger).error.message).slice(0, 300) }}",
+              "type": "string"
+            },
+            {
+              "id": "6d25326c-deba-4595-b4b0-6392c55a7434",
+              "name": "outcome",
+              "value": "={{ 'alerted on Telegram' + ($json.execution && $json.execution.id ? ', execution ' + $json.execution.id : '') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "99adc4f7-cfef-4df6-a4ad-b561a25fbe9f",
+      "name": "Log failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        920,
+        100
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "61fb58c8-e827-4d1e-92e9-37cb5e801a63",
+      "name": "Telegram failure",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1140,
+        100
+      ],
+      "parameters": {
+        "chatId": "={{ $('Config').first().json.telegram_chat_id }}",
+        "text": "={{ ('⚠️ AirGuard: ' + $('Failure line').first().json.reason + ($('Config').first().json.execution ? '\\n' + $('Config').first().json.execution.url : '')).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "name": "AirGuard Telegram"
+        }
+      }
+    },
+    {
+      "id": "9f49650e-3ded-4e9d-a19a-6e8af28bb339",
+      "name": "Apify failure line",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "25da0675-f8ec-4457-880f-af396482e813",
+              "name": "workflow",
+              "value": "WF4",
+              "type": "string"
+            },
+            {
+              "id": "7c6e7082-e6b3-4c36-8690-fec979bcd0c8",
+              "name": "action",
+              "value": "={{ 'ALERT APIFY RUN ' + $json.body.resource.status }}",
+              "type": "string"
+            },
+            {
+              "id": "c81ca17d-eac9-46c5-8537-090a33de8de6",
+              "name": "reason",
+              "value": "={{ 'Apify run ' + $json.body.resource.id + ' ended ' + $json.body.resource.status + ' at ' + $json.body.resource.finishedAt + ': no data this cycle, the watchdog covers a longer gap' }}",
+              "type": "string"
+            },
+            {
+              "id": "a1db12a2-2978-4a37-bced-15a5c814897d",
+              "name": "outcome",
+              "value": "alerted on Telegram",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7dae8d2b-f705-4e0a-81df-bc5807e40ea9",
+      "name": "Log Apify failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        920,
+        300
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "9953bce6-4d75-4b7a-a50f-abf419fe1276",
+      "name": "Telegram Apify failure",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "chatId": "={{ $('Config').first().json.telegram_chat_id }}",
+        "text": "={{ ('⚠️ AirGuard: ' + $('Apify failure line').first().json.reason).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "name": "AirGuard Telegram"
+        }
+      }
+    },
+    {
+      "id": "c173cc6a-b424-4a11-a41c-5d961665aff0",
+      "name": "Check freshness",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        700,
+        540
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Stale = newest real observation older than 15 min (the same window as the cell_status view).\n-- The C11 test cells never count as fresh data. alarmed = the last watchdog line is ALERT DATA STALE.\nselect max(ts) as last_ts,\n       floor(extract(epoch from now() - max(ts)) / 60)::int as age_min,\n       coalesce(max(ts) < now() - interval '15 minutes', true) as stale,\n       coalesce((select action = 'ALERT DATA STALE' from agent_log\n                 where workflow = 'WF4' and action in ('ALERT DATA STALE', 'END STALE ALARM')\n                 order by id desc limit 1), false) as alarmed\nfrom observations\nwhere cell_id not in ('89.5_178.5', '89.5_179.0', '89.5_179.5');",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "1c7f1bc2-f397-46b0-abc3-b819711afd05",
+      "name": "Stale or fresh again?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        920,
+        540
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "4eec9ca3-6786-4f3c-a2f8-82ffe2385339",
+                    "leftValue": "={{ $json.stale && !$json.alarmed }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "went stale"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d4382f0e-5876-4120-8b15-30eb599891fe",
+                    "leftValue": "={{ !$json.stale && $json.alarmed }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "fresh again"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4abf4dc6-e047-4651-8bb7-91312f9f6c01",
+      "name": "Stale line",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1140,
+        480
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d21df7fb-636d-4008-96a7-bd0e5d01361f",
+              "name": "workflow",
+              "value": "WF4",
+              "type": "string"
+            },
+            {
+              "id": "60043d80-e4e7-4cf5-931e-9013f98a7c8e",
+              "name": "action",
+              "value": "ALERT DATA STALE",
+              "type": "string"
+            },
+            {
+              "id": "1d1a662d-6a86-4a10-b604-f09eb9563be6",
+              "name": "reason",
+              "value": "={{ $json.last_ts ? 'data stale ' + $json.age_min + ' min: every cell UNKNOWN, HOLD logic still active (newest observation ' + $json.last_ts + ')' : 'no observations yet: every cell UNKNOWN, HOLD logic still active' }}",
+              "type": "string"
+            },
+            {
+              "id": "a68e3532-d3a9-4a01-99c7-460171405494",
+              "name": "outcome",
+              "value": "alerted on Telegram",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0cb2c348-2214-479f-8e99-d8d8c724c77b",
+      "name": "Log stale",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1360,
+        480
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "id": "9319038c-a03c-4636-9182-2827a1a7fbe5",
+      "name": "Telegram stale",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1580,
+        480
+      ],
+      "parameters": {
+        "chatId": "={{ $('Config').first().json.telegram_chat_id }}",
+        "text": "={{ ('⚠️ AirGuard: ' + $('Stale line').first().json.reason).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "name": "AirGuard Telegram"
+        }
+      }
+    },
+    {
+      "id": "571fe641-acda-468c-a5ef-d2315e2d8fe1",
+      "name": "Fresh line",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1140,
+        640
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fdff9c8d-60c2-4136-bae0-55ff711486f0",
+              "name": "workflow",
+              "value": "WF4",
+              "type": "string"
+            },
+            {
+              "id": "33a67e38-23c8-4bf0-a508-bbe3b970d46f",
+              "name": "action",
+              "value": "END STALE ALARM",
+              "type": "string"
+            },
+            {
+              "id": "44616e4a-5e77-4279-a6b3-dbbc3c9379b7",
+              "name": "reason",
+              "value": "={{ 'data fresh again: newest observation ' + $json.last_ts + ' (' + $json.age_min + ' min old)' }}",
+              "type": "string"
+            },
+            {
+              "id": "9c1c46e6-6cb8-4488-b88a-824f8631954b",
+              "name": "outcome",
+              "value": "logged",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "50644618-3528-4219-8d9b-408dac34aba7",
+      "name": "Log fresh",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1360,
+        640
+      ],
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow failed": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apify run failed": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 5 min": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Which trigger?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Which trigger?": {
+      "main": [
+        [
+          {
+            "node": "Failure line",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Apify failure line",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check freshness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failure line": {
+      "main": [
+        [
+          {
+            "node": "Log failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log failure": {
+      "main": [
+        [
+          {
+            "node": "Telegram failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apify failure line": {
+      "main": [
+        [
+          {
+            "node": "Log Apify failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Apify failure": {
+      "main": [
+        [
+          {
+            "node": "Telegram Apify failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check freshness": {
+      "main": [
+        [
+          {
+            "node": "Stale or fresh again?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stale or fresh again?": {
+      "main": [
+        [
+          {
+            "node": "Stale line",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fresh line",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stale line": {
+      "main": [
+        [
+          {
+            "node": "Log stale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log stale": {
+      "main": [
+        [
+          {
+            "node": "Telegram stale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fresh line": {
+      "main": [
+        [
+          {
+            "node": "Log fresh",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
