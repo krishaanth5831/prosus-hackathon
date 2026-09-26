@@ -18,9 +18,9 @@ Spec: `docs/prd.md` (what, why) · `docs/plan.md` (how) · `shared/contracts/CON
 
 | Who | Owns |
 |---|---|
-| Person A `<github-username-A>` | `features/collect/` |
-| Person B `<github-username-B>` | `features/gate/` |
-| Person C `<github-username-C>` | `features/detect/`, `features/map/`, `README.md`, `docs/TASKS.md`, `docs/n8n-import.md`, `docs/video-script.md`, `docs/evidence.md` |
+| Person A `krishaanth5831` | `features/collect/` |
+| Person B `ShivamK12345` | `features/gate/` |
+| Person C `Atharva-cloud-1` | `features/detect/`, `features/map/`, `README.md`, `docs/TASKS.md`, `docs/n8n-import.md`, `docs/video-script.md`, `docs/evidence.md` |
 | **KRISH ONLY** (hot files) | `CLAUDE.md`, `db/`, `shared/`, `package.json`, `.github/`, `.gitignore`, `.env.example`, `docs/prd.md`, `docs/plan.md`, `docs/research.md`, `docs/SETUP_PROMPT.md` |
 | Anyone | `docs/DECISIONS.md`: APPEND one row at the end. Never edit existing rows. |
 
