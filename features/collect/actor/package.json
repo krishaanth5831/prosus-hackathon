@@ -1,0 +1,12 @@
+{
+  "//": "Owner: Person A (see CLAUDE.md). STUB. TODO Person A: add \"apify\": \"^3\" to dependencies. The only deps in the repo live here.",
+  "name": "airguard-adsb-collector",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node src/main.js"
+  },
+  "dependencies": {}
+}

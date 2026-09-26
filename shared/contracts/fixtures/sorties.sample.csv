@@ -1,0 +1,11 @@
+sortie_id,unit,priority,launch_at,window_end,cells,status,decided_by,note
+T-001,"3rd Border Drone Sqn (DEMO, fictional)",priority,2026-09-26T21:35:00Z,2026-09-26T22:35:00Z,54.5_20.5;55.0_20.5,PLANNED,,
+T-002,"3rd Border Drone Sqn (DEMO, fictional)",routine,2026-09-26T22:05:00Z,2026-09-27T04:05:00Z,54.5_20.5,PLANNED,,
+T-003,"3rd Border Drone Sqn (DEMO, fictional)",routine,2026-09-26T22:35:00Z,2026-09-26T23:35:00Z,55.0_20.5;54.5_20.5,PLANNED,,
+T-004,"3rd Border Drone Sqn (DEMO, fictional)",low,2026-09-26T22:05:00Z,2026-09-27T01:05:00Z,54.5_20.5;55.0_21.0,PLANNED,,
+T-005,"3rd Border Drone Sqn (DEMO, fictional)",low,2026-09-26T21:50:00Z,2026-09-27T00:50:00Z,59.5_25.0,PLANNED,,
+T-006,"3rd Border Drone Sqn (DEMO, fictional)",routine,2026-09-26T21:45:00Z,2026-09-27T03:45:00Z,55.0_21.0,PLANNED,,
+T-007,"3rd Border Drone Sqn (DEMO, fictional)",priority,2026-09-27T02:05:00Z,2026-09-27T03:05:00Z,56.5_21.0;55.0_20.5,PLANNED,,
+T-008,"3rd Border Drone Sqn (DEMO, fictional)",routine,2026-09-26T23:05:00Z,2026-09-27T05:05:00Z,55.0_20.5;56.5_21.0,RESCHEDULED,agent,moved +2 h 21:05→23:05 UTC: JAMMED 55.0_20.5 medium
+T-009,"3rd Border Drone Sqn (DEMO, fictional)",low,2026-09-26T21:20:00Z,2026-09-27T00:20:00Z,54.5_20.5,CANCELLED,agent,JAMMED 54.5_20.5 high: 5/8 aircraft degraded
+T-010,"3rd Border Drone Sqn (DEMO, fictional)",priority,2026-09-26T21:40:00Z,2026-09-26T22:40:00Z,59.5_25.0;56.5_21.0,HOLD,agent,SPOOF 59.5_25.0: awaiting duty officer

@@ -1,0 +1,26 @@
+{
+  "userId": "Xk8pQwR2mN4tYv7Ls",
+  "createdAt": "2026-09-26T21:05:31.874Z",
+  "eventType": "ACTOR.RUN.SUCCEEDED",
+  "eventData": {
+    "actorId": "aG7rT2kLp9Wq3xYzB",
+    "actorRunId": "Hn5vB8cM1qR6sT0uV"
+  },
+  "resource": {
+    "id": "Hn5vB8cM1qR6sT0uV",
+    "actId": "aG7rT2kLp9Wq3xYzB",
+    "userId": "Xk8pQwR2mN4tYv7Ls",
+    "startedAt": "2026-09-26T21:05:00.118Z",
+    "finishedAt": "2026-09-26T21:05:31.402Z",
+    "status": "SUCCEEDED",
+    "meta": {
+      "origin": "SCHEDULER"
+    },
+    "buildId": "Jc3dF6gH9jK2lM5nP",
+    "exitCode": 0,
+    "defaultKeyValueStoreId": "Qw1eR4tY7uI0oP3aS",
+    "defaultDatasetId": "Zx9cV2bN5mL8kJ1hG",
+    "defaultRequestQueueId": "Fd4sA7pO0iU3yT6rE",
+    "containerUrl": "https://hn5vb8cm1qr6.runs.apify.net"
+  }
+}

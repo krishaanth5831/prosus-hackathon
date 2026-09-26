@@ -1,0 +1,9 @@
+{
+  "actorSpecification": 1,
+  "name": "airguard-adsb-collector",
+  "title": "AirGuard ADS-B collector",
+  "description": "Owner: Person A (see CLAUDE.md). STUB. Polls adsb.lol (fallback adsb.fi) every 5 min; output per shared/contracts/CONTRACTS.md C2.",
+  "version": "0.0",
+  "input": "./input_schema.json",
+  "dockerfile": "../Dockerfile"
+}
