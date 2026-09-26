@@ -1,5 +1,5 @@
 // Owner: Person C (see CLAUDE.md)
-// The WF2 export follows C9 and stays in sync with the .sql and .js files they embed.
+// WF2 and WF5 exports follow C9 and stay in sync with the .sql and .js files they embed.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -8,7 +8,7 @@ const path = require('node:path');
 const text = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8').replace(/\r\n/g, '\n');
 const load = (f) => JSON.parse(text(f));
 const CREDENTIALS = ['AirGuard Postgres', 'AirGuard Telegram', 'AirGuard Sheets', 'AirGuard Apify', 'AirGuard LLM'];
-const TRIGGERS = ['n8n-nodes-base.executeWorkflowTrigger'];
+const TRIGGERS = ['n8n-nodes-base.scheduleTrigger', 'n8n-nodes-base.executeWorkflowTrigger'];
 const node = (wf, name) => wf.nodes.find((n) => n.name === name);
 const next = (wf, name) => (wf.connections[name]?.main ?? []).flat().map((c) => c.node);
 
@@ -44,4 +44,14 @@ test('WF2 Detect export', () => {
   assert.deepEqual(next(wf, 'MAY-LIFT?'), ['Telegram MAY-LIFT']);
   const wf3 = node(wf, 'Execute WF3');
   assert.deepEqual([wf3.disabled, wf3.notes], [true, 'wire at integration']);
+});
+
+test('WF5 Report export', () => {
+  const wf = load('wf5-report.json');
+  assert.equal(wf.name, 'AirGuard WF5 Report');
+  followsC9(wf);
+  assert.equal(node(wf, 'Every day 07:00').parameters.rule.interval[0].expression, '0 7 * * *');
+  assert.equal(wf.settings.timezone, 'Europe/Amsterdam');
+  assert.equal(node(wf, 'report.sql').parameters.query, text('sql/report.sql'));
+  assert.ok(node(wf, 'Report text').parameters.jsCode.startsWith(text('reportText.js')), 'Code node = reportText.js + glue');
 });
