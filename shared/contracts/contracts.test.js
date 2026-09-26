@@ -1,4 +1,4 @@
-// Owner: Krish. Checks that every fixture in shared/contracts/fixtures/ obeys CONTRACTS.md (C1 C2 C4 C5 C7 C10).
+// Owner: Krish. Checks that every fixture in shared/contracts/fixtures/ obeys CONTRACTS.md (C1 C2 C4 C5 C7 C10 C12).
 // Deliberately imports no feature code: the contract is checked on its own.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -104,7 +104,8 @@ test('Apify webhook payload carries what WF1 needs', () => {
 test('C4 cell_status rows', () => {
   const rows = json('cell_status.sample.json');
   const STATES = ['JAMMED', 'SPOOF', 'UNKNOWN', 'NO_KNOWN_ISSUE'];
-  const KEYS = ['cell_id', 'ts', 'n_total', 'n_degraded', 'ratio', 'incident_id', 'severity', 'evidence', 'state'].sort();
+  const KEYS = ['cell_id', 'ts', 'n_total', 'n_degraded', 'ratio', 'incident_id', 'severity', 'evidence', 'state',
+    'drone_ts', 'drone_evidence'].sort();
   for (const s of STATES) assert.ok(rows.some((r) => r.state === s), `state ${s} present`);
   assert.equal(new Set(rows.map((r) => r.cell_id)).size, rows.length, 'one row per cell');
   for (const r of rows) {
@@ -124,7 +125,11 @@ test('C4 cell_status rows', () => {
       assert.equal(r.severity, null);
     }
     if (r.state === 'UNKNOWN') assert.ok(r.n_total === null || r.n_total < 3);
-    if (r.state === 'NO_KNOWN_ISSUE') assert.ok(r.n_total >= 3 && r.ratio < 0.3);
+    assert.equal(r.drone_ts === null, r.drone_evidence === null, `${r.cell_id}: drone_ts and drone_evidence go together`);
+    if (r.drone_ts !== null) assert.ok(isUtc(r.drone_ts));
+    if (r.state === 'NO_KNOWN_ISSUE') {
+      assert.ok((r.n_total >= 3 && r.ratio < 0.3) || r.drone_evidence !== null, `${r.cell_id}: aircraft coverage or a drone report`);
+    }
     if (r.state === 'JAMMED' && r.ts !== null) assert.ok(r.n_total >= 3 && r.ratio >= 0.3);
   }
 });
@@ -186,4 +191,23 @@ test('C7 Telegram callback_data', () => {
   assert.deepEqual([...kinds].sort(), ['bf', 'bk', 'f', 'k', 'l']);
   // worst case still fits: longest realistic sortie id + a large decision id
   assert.ok(Buffer.byteLength('f|S-2026-09-27-BORDER-SQN3-048|9007199254740991') <= 64);
+});
+
+test('C12 drone report', () => {
+  const r = json('drone-report.sample.json');
+  assert.deepEqual(Object.keys(r), ['source', 'drone_id', 'sortie_id', 'legs', 'samples']);
+  assert.match(r.source, /^[a-z0-9:-]{1,40}$/);
+  assert.ok(r.source.startsWith('sim:'), 'the fixture is simulated and says so');
+  for (const id of [r.drone_id, r.sortie_id]) assert.match(id, /^[A-Za-z0-9-]{1,32}$/);
+  for (const l of r.legs) {
+    assert.deepEqual(Object.keys(l), ['cell_id', 'from', 'to']);
+    assert.match(l.cell_id, CELL_RE);
+    assert.ok(isUtc(l.from) && isUtc(l.to) && Date.parse(l.from) < Date.parse(l.to));
+  }
+  for (const s of r.samples) {
+    assert.deepEqual(Object.keys(s), ['t', 'fix_type', 'satellites_visible', 'h_acc', 'jamming_state', 'spoofing_state', 'lat', 'lon']);
+    assert.ok(isUtc(s.t));
+    for (const k of ['fix_type', 'satellites_visible', 'h_acc', 'jamming_state', 'spoofing_state']) assert.ok(Number.isInteger(s[k]), k);
+    assert.ok(s.fix_type >= 0 && s.fix_type <= 8 && s.jamming_state <= 3 && s.spoofing_state <= 3);
+  }
 });

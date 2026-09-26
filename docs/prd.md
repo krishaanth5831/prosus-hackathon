@@ -137,6 +137,7 @@ Sorties are checked every cycle. The agent **acts** on sorties launching within 
 | F13 | False-alarm tap raises the cell threshold (+0.05, max 0.6) | Could | |
 | F14 | Loss investigator: GNSS picture for a given time and place | Could | One SQL query + Telegram command |
 | F15 | Reroute proposal around bad cells, human approves | Could | Proposal only, never automatic |
+| F16 | Drone GNSS reports (C12) from the unit's ground station as a second sensor for cells without aircraft; WF7 intake, fused into incidents and `cell_status` | Should | Demo data is simulated border-patrol MAVLink, labelled SIMULATED. Placed by planned leg, never by the drone's GPS. Spec: `docs/drone-telemetry.md` |
 
 ### Non-functional requirements
 - **Hosting:** runs hosted 24/7 on Apify schedules, n8n Cloud and Supabase. Nothing runs on the laptop.
@@ -149,7 +150,7 @@ Sorties are checked every cycle. The agent **acts** on sorties launching within 
 ### Out of scope
 - Anything onboard the drone.
 - Weapons or targeting.
-- Real military sortie data.
+- Real military sortie data or real drone telemetry (F16 runs on simulated reports).
 - Classified sources.
 - Auto-lifting HOLDs.
 - An LLM in the decision path.

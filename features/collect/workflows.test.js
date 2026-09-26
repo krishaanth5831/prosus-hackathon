@@ -7,7 +7,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const load = (f) => JSON.parse(fs.readFileSync(path.join(__dirname, f), 'utf8'));
-const CREDENTIALS = ['AirGuard Postgres', 'AirGuard Telegram', 'AirGuard Sheets', 'AirGuard Apify', 'AirGuard LLM'];
+const CREDENTIALS = ['AirGuard Postgres', 'AirGuard Telegram', 'AirGuard Sheets', 'AirGuard Apify', 'AirGuard LLM',
+  'AirGuard Drone Intake'];
 const TRIGGERS = ['n8n-nodes-base.webhook', 'n8n-nodes-base.errorTrigger', 'n8n-nodes-base.scheduleTrigger',
   'n8n-nodes-base.executeWorkflowTrigger'];
 const node = (wf, name) => wf.nodes.find((n) => n.name === name);
@@ -72,4 +73,23 @@ test('WF4 Heal export', () => {
   for (const n of wf.nodes.filter((x) => x.type === 'n8n-nodes-base.telegram')) {
     assert.equal(n.parameters.additionalFields.parse_mode, 'HTML', `${n.name}: the Markdown default breaks on "_" in cell ids`);
   }
+});
+
+test('WF7 Telemetry export: secret-header webhook, droneReport.js, rows and one log line', () => {
+  const wf = load('wf7-telemetry.json');
+  assert.equal(wf.name, 'AirGuard WF7 Telemetry');
+  followsC9(wf);
+  const hook = node(wf, 'Drone report');
+  assert.deepEqual([hook.parameters.path, hook.parameters.authentication, hook.parameters.responseMode],
+    ['airguard-drone', 'headerAuth', 'onReceived'], 'nobody to call back, so the webhook needs the shared secret');
+  assert.deepEqual(hook.credentials, { httpHeaderAuth: { name: 'AirGuard Drone Intake' } });
+  const droneReport = fs.readFileSync(path.join(__dirname, 'droneReport.js'), 'utf8');
+  const code = node(wf, 'droneReport').parameters.jsCode;
+  assert.ok(code.startsWith(droneReport), 'Code node = droneReport.js + glue');
+  assert.ok(droneReport.includes(`// ${code.slice(droneReport.length).trim()}`), 'the glue line is the one documented in droneReport.js');
+  assert.deepEqual(['Config', 'droneReport', 'Report rows', 'Insert drone_reports', 'Ingest line', 'Reject line'].map((n) => next(wf, n)),
+    [['droneReport'], ['Valid?'], ['Insert drone_reports'], ['Ingest line'], ['Log ingest'], ['Log reject']]);
+  assert.deepEqual(wf.connections['Valid?'].main.map((o) => o.map((c) => c.node)), [['Report rows'], ['Reject line']]);
+  assert.equal(node(wf, 'Insert drone_reports').parameters.table.value, 'drone_reports');
+  assert.equal(node(wf, 'Ingest line').executeOnce, true, 'one agent_log line per report, not per row');
 });
