@@ -36,8 +36,8 @@ test('WF1 Collect export', () => {
   const binCells = fs.readFileSync(path.join(__dirname, 'binCells.js'), 'utf8');
   assert.equal(node(wf, 'binCells').parameters.jsCode,
     binCells + 'return binCells($input.all().map(i => i.json)).map(json => ({ json }));\n', 'Code node = binCells.js + glue');
-  const wf2 = node(wf, 'Execute WF2');
-  assert.deepEqual([wf2.disabled, wf2.notes], [true, 'wire at integration']);
+  const wf2 = node(wf, 'Execute WF2');   // wired at integration
+  assert.deepEqual([!!wf2.disabled, wf2.executeOnce, wf2.parameters.workflowId.cachedResultName], [false, true, 'AirGuard WF2 Detect']);
 });
 
 test('WF4 Heal export', () => {

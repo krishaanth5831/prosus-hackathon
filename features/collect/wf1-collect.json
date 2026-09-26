@@ -359,19 +359,17 @@
       "name": "Execute WF2",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
+      "executeOnce": true,
       "position": [
         1760,
         320
       ],
-      "disabled": true,
-      "executeOnce": true,
-      "notes": "wire at integration",
-      "notesInFlow": true,
       "parameters": {
         "workflowId": {
           "__rl": true,
           "mode": "list",
-          "value": ""
+          "value": "KPCB3810HyAh8FUm",
+          "cachedResultName": "AirGuard WF2 Detect"
         },
         "options": {}
       }
