@@ -21,8 +21,8 @@ Specs: `docs/plan.md` · contracts: `shared/contracts/CONTRACTS.md`.
 | **C1** | SQL: detect, lift, close, report, investigate | Person C `ShivamK12345` | `features/detect/sql/` | Each file runs clean against the schema | PR #8 · runs clean on 001_init.sql |
 | **C2** | detect_fixture.sql + run-fixtures.sh on test cell `89.5_179.5` | Person C | `features/detect/fixtures/` | Script prints pass for 1 vs 2 checks, n_total < 3, dedupe, re-arm, MAY-LIFT coverage; exits 0 | PR #9 · 14/14 pass on Supabase (evidence/c2-fixtures-live.md) |
 | **C3** | WF2 Detect (`wf2-detect.json`), Execute WF3 left disabled | Person C | `features/detect/` | An incident opens from data with an agent_log line; MAY-LIFT sends a Telegram message | PR #10 · imported `KPCB3810HyAh8FUm`, creds attached, error WF = WF4 |
-| **C4** | WF5 Report (`wf5-report.json`), 07:00 Europe/Amsterdam | Person C | `features/detect/` | A manual run puts the morning report on the phone | PR #11 · imported `smqvjqaMQhKFdwbg`, active 07:00; manual run pending |
-| **C5** | Leaflet map (`index.html`, `vercel.json`), `?fixture=1` mode | Person C | `features/map/` | Live cells render on the phone from the Vercel URL; no green anywhere | PR #14 · fixture mode verified; Vercel deploy pending |
+| **C4** | WF5 Report (`wf5-report.json`), 07:00 Europe/Amsterdam | Person C | `features/detect/` | A manual run puts the morning report on the phone | PR #11 · imported `smqvjqaMQhKFdwbg`, active 07:00; manual run delivered (evidence/c4-wf5-manual-run.md) |
+| **C5** | Leaflet map (`index.html`, `vercel.json`), `?fixture=1` mode | Person C | `features/map/` | Live cells render on the phone from the Vercel URL; no green anywhere | PR #14 · fixture + live data verified locally; Vercel deploy handed to Krish |
 | **C6** | README AirGuard sections + docs/n8n-import.md | Person C | `README.md`, `docs/` | A judge understands the system from the README alone | PR open · workflow IDs + map URL filled in after import/deploy |
 | **C7** | docs/video-script.md + docs/evidence.md | Person C | `docs/` | ≤ 2 min script with a shot list tied to exact SQL/screens | PR open · placeholders filled from the overnight run |
 
