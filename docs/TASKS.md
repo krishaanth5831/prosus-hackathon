@@ -18,12 +18,12 @@ Specs: `docs/plan.md` · contracts: `shared/contracts/CONTRACTS.md`.
 | **B4** | WF3 Gate (`wf3-gate.json`), decisions inserted before acting | Person B | `features/gate/` | A fixture incident changes a sheet row and a HOLD card arrives on the phone | todo |
 | **B5** | WF6 Respond (`wf6-respond.json`), allowlist + C7 parsing | Person B | `features/gate/` | A tap on Keep / Launch / False alarm changes the sheet; a stranger's tap is refused | todo |
 | **B6** | End-to-end on test cell `89.5_179.0` with T-001..T-005 | Person B | `features/gate/evidence/` | Every level seen on the sheet + phone, second run does nothing, proof saved, test rows deleted | todo |
-| **C1** | SQL: detect, lift, close, report, investigate | Person C `ShivamK12345` | `features/detect/sql/` | Each file runs clean against the schema | todo |
-| **C2** | detect_fixture.sql + run-fixtures.sh on test cell `89.5_179.5` | Person C | `features/detect/fixtures/` | Script prints pass for 1 vs 2 checks, n_total < 3, dedupe, re-arm, MAY-LIFT coverage; exits 0 | todo |
-| **C3** | WF2 Detect (`wf2-detect.json`), Execute WF3 left disabled | Person C | `features/detect/` | An incident opens from data with an agent_log line; MAY-LIFT sends a Telegram message | todo |
-| **C4** | WF5 Report (`wf5-report.json`), 07:00 Europe/Amsterdam | Person C | `features/detect/` | A manual run puts the morning report on the phone | todo |
-| **C5** | Leaflet map (`index.html`, `vercel.json`), `?fixture=1` mode | Person C | `features/map/` | Live cells render on the phone from the Vercel URL; no green anywhere | todo |
-| **C6** | README AirGuard sections + docs/n8n-import.md | Person C | `README.md`, `docs/` | A judge understands the system from the README alone | todo |
-| **C7** | docs/video-script.md + docs/evidence.md | Person C | `docs/` | ≤ 2 min script with a shot list tied to exact SQL/screens | todo |
+| **C1** | SQL: detect, lift, close, report, investigate | Person C `ShivamK12345` | `features/detect/sql/` | Each file runs clean against the schema | PR #8 · runs clean on 001_init.sql |
+| **C2** | detect_fixture.sql + run-fixtures.sh on test cell `89.5_179.5` | Person C | `features/detect/fixtures/` | Script prints pass for 1 vs 2 checks, n_total < 3, dedupe, re-arm, MAY-LIFT coverage; exits 0 | PR #9 · 14/14 pass on local Postgres; Supabase run pending `.env` |
+| **C3** | WF2 Detect (`wf2-detect.json`), Execute WF3 left disabled | Person C | `features/detect/` | An incident opens from data with an agent_log line; MAY-LIFT sends a Telegram message | PR #10 · n8n import pending |
+| **C4** | WF5 Report (`wf5-report.json`), 07:00 Europe/Amsterdam | Person C | `features/detect/` | A manual run puts the morning report on the phone | PR #11 · n8n import + manual run pending |
+| **C5** | Leaflet map (`index.html`, `vercel.json`), `?fixture=1` mode | Person C | `features/map/` | Live cells render on the phone from the Vercel URL; no green anywhere | PR #14 · fixture mode verified; Vercel deploy pending |
+| **C6** | README AirGuard sections + docs/n8n-import.md | Person C | `README.md`, `docs/` | A judge understands the system from the README alone | PR open · workflow IDs + map URL filled in after import/deploy |
+| **C7** | docs/video-script.md + docs/evidence.md | Person C | `docs/` | ≤ 2 min script with a shot list tied to exact SQL/screens | in progress |
 
 Integration (Krish, after A/B/C are done): wire WF1→WF2→WF3, error workflow = WF4, real `gen-sorties` run, dev → main, tag `demo-v1`.
