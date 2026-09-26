@@ -195,9 +195,10 @@
       ],
       "parameters": {
         "chatId": "={{ $('Config').first().json.telegram_chat_id }}",
-        "text": "={{ 'ℹ️ MAY-LIFT · ' + $json.reason + '. HOLDs there may be lifted by you. AirGuard lifts nothing on its own.' }}",
+        "text": "={{ ('ℹ️ MAY-LIFT · ' + $json.reason + '. HOLDs there may be lifted by you. AirGuard lifts nothing on its own.').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "credentials": {

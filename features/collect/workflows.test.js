@@ -40,6 +40,22 @@ test('WF1 Collect export', () => {
   assert.deepEqual([!!wf2.disabled, wf2.executeOnce, wf2.parameters.workflowId.cachedResultName], [false, true, 'AirGuard WF2 Detect']);
 });
 
+test('WF1 trusts only what Apify says about a run, never the webhook body', () => {
+  const wf = load('wf1-collect.json');
+  assert.deepEqual(['Config', 'Verify run', 'Check run'].map((n) => next(wf, n)), [['Verify run'], ['Check run'], ['Verified?']]);
+  assert.deepEqual(wf.connections['Verified?'].main.map((o) => o.map((c) => c.node)), [['Get RUN_META'], ['Reject line']]);
+  assert.deepEqual(next(wf, 'Reject line'), ['Log reject']);
+  const verify = node(wf, 'Verify run').parameters;
+  assert.match(verify.url, /\/actor-runs\/\{\{ encodeURIComponent\(/, 'the run id is encoded into the path');
+  assert.equal(verify.options.response.response.neverError, true, 'a forged id is refused, not an error');
+  const checkRun = fs.readFileSync(path.join(__dirname, 'checkRun.js'), 'utf8');
+  const code = node(wf, 'Check run').parameters.jsCode;
+  assert.ok(code.startsWith(checkRun), 'Code node = checkRun.js + glue');
+  assert.ok(checkRun.includes(`// ${code.slice(checkRun.length).trim()}`), 'the glue line is the one documented in checkRun.js');
+  assert.doesNotMatch(JSON.stringify(wf), /resource\.default(DatasetId|KeyValueStoreId)/, 'no storage id is read from the webhook body');
+  for (const n of ['Get RUN_META', 'Get dataset items']) assert.match(node(wf, n).parameters.url, /\$\('Check run'\)/, n);
+});
+
 test('WF4 Heal export', () => {
   const wf = load('wf4-heal.json');
   assert.equal(wf.name, 'AirGuard WF4 Heal');

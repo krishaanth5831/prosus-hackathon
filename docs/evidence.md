@@ -99,6 +99,8 @@ Numbers behind it: run `features/detect/sql/report.sql` as-is.
 
 ## E7 The map
 
+URL: https://airguard-map.vercel.app
+
 - [ ] Live map with at least one red cell, on the phone, from the Vercel URL → `features/detect/evidence/e7-map-phone.png`
 - [ ] Desktop view with the log panel → `features/detect/evidence/e7-map.png`
 
