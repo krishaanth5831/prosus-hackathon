@@ -24,6 +24,6 @@ Specs: `docs/plan.md` · contracts: `shared/contracts/CONTRACTS.md`.
 | **C4** | WF5 Report (`wf5-report.json`), 07:00 Europe/Amsterdam | Person C | `features/detect/` | A manual run puts the morning report on the phone | PR #11 · n8n import + manual run pending |
 | **C5** | Leaflet map (`index.html`, `vercel.json`), `?fixture=1` mode | Person C | `features/map/` | Live cells render on the phone from the Vercel URL; no green anywhere | PR #14 · fixture mode verified; Vercel deploy pending |
 | **C6** | README AirGuard sections + docs/n8n-import.md | Person C | `README.md`, `docs/` | A judge understands the system from the README alone | PR open · workflow IDs + map URL filled in after import/deploy |
-| **C7** | docs/video-script.md + docs/evidence.md | Person C | `docs/` | ≤ 2 min script with a shot list tied to exact SQL/screens | in progress |
+| **C7** | docs/video-script.md + docs/evidence.md | Person C | `docs/` | ≤ 2 min script with a shot list tied to exact SQL/screens | PR open · placeholders filled from the overnight run |
 
 Integration (Krish, after A/B/C are done): wire WF1→WF2→WF3, error workflow = WF4, real `gen-sorties` run, dev → main, tag `demo-v1`.
