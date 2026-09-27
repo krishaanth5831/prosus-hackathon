@@ -33,12 +33,28 @@ test('routine, JAMMED cell, +2 h still inside its window → L1_RESCHEDULE, no h
   assert.deepEqual(levels(run([sortie({ window_end: at(60 + 120) }), ...quiet(3)])), ['L1_RESCHEDULE']);
 });
 
-test('routine, no slot left in its window → L3_HOLD for a human', () => {
+test('routine, no slot left in its window → L3_AUTO_HOLD: the agent holds it on its own and says so', () => {
   const s = sortie({ window_end: at(60 + 60) });
   assert.deepEqual(run([s, ...quiet(3)]), [{
     sortie_id: 'T-001', launch_at: s.launch_at, key: `T-001|41|${s.launch_at}`, incident_id: 41,
-    level: 'L3_HOLD', human: true, reason: JAM41,
+    level: 'L3_AUTO_HOLD', human: false, reason: JAM41,
   }]);
+});
+
+test('a route with a JAMMED cell and cells without one → L1_REROUTE around it, before reschedule or cancel', () => {
+  const s = sortie({ cells: '54.5_20.5;56.5_21.0;55.0_21.0' });          // JAMMED · NO_KNOWN_ISSUE · UNKNOWN
+  assert.deepEqual(run([s, ...quiet(3)]), [{
+    sortie_id: 'T-001', launch_at: s.launch_at, key: `T-001|41|${s.launch_at}`, incident_id: 41,
+    level: 'L1_REROUTE', human: false, new_cells: '56.5_21.0;55.0_21.0', reason: JAM41,
+  }]);
+  assert.deepEqual(run([sortie({ priority: 'low', cells: '56.5_21.0;54.5_20.5' }), ...quiet(3)]).map((a) => [a.level, a.new_cells]),
+    [['L1_REROUTE', '56.5_21.0']], 'a low sortie is rerouted rather than cancelled');
+  assert.deepEqual(levels(run([sortie({ cells: '54.5_20.5;55.0_20.5' }), ...quiet(3)])), ['L1_RESCHEDULE'], 'every cell jammed: nothing to keep');
+  assert.deepEqual(levels(run([sortie({ cells: '54.5_20.5;55.0_21.0' }), ...quiet(3)], { recentlyJammed: ['55.0_21.0'] })),
+    ['L1_RESCHEDULE'], 'an UNKNOWN cell jammed in the last 6 h is not kept either');
+  assert.deepEqual(levels(run([sortie({ priority: 'priority', cells: '54.5_20.5;56.5_21.0' }), ...quiet(3)])), ['L3_HOLD'],
+    'high risk: a priority sortie goes to a human even when a reroute exists');
+  assert.deepEqual(levels(run([sortie({ cells: '59.5_25.0;56.5_21.0' }), ...quiet(3)])), ['L4_SPOOF_HOLD'], 'so does spoofing');
 });
 
 test('low, JAMMED cell → L2_CANCEL, no human', () => {
@@ -91,12 +107,18 @@ test('UNKNOWN cell, launch < 1 h, no recent jamming → UNVERIFIED notice; the s
   assert.deepEqual(run([sortie({ launch_at: at(61), cells: '55.0_21.0' })]), [], 'more than 1 h out: nothing yet');
 });
 
-test('UNKNOWN cell that was jammed in the last 6 h → L3_HOLD, not a notice', () => {
+test('UNKNOWN cell that was jammed in the last 6 h → acted on like a jammed cell, not a notice', () => {
   const s = sortie({ launch_at: at(40), cells: '56.5_21.0;55.0_21.0' });
+  const reason = 'no sensor coverage in 55.0_21.0, which was jammed in the last 6 h';
   assert.deepEqual(run([s], { recentlyJammed: ['55.0_21.0'] }), [{
     sortie_id: 'T-001', launch_at: s.launch_at, key: `T-001|unknown|${s.launch_at}`, incident_id: null,
-    level: 'L3_HOLD', human: true, reason: 'no sensor coverage in 55.0_21.0, which was jammed in the last 6 h',
+    level: 'L1_REROUTE', human: false, new_cells: '56.5_21.0', reason,
   }]);
+  const hot = (o) => run([sortie({ launch_at: at(40), cells: '55.0_21.0', ...o })], { recentlyJammed: ['55.0_21.0'] })
+    .map((a) => [a.level, a.human]);
+  assert.deepEqual(hot({ priority: 'priority' }), [['L3_HOLD', true]]);
+  assert.deepEqual(hot({ priority: 'low' }), [['L2_CANCEL', false]]);
+  assert.deepEqual(hot({ window_end: at(100) }), [['L3_AUTO_HOLD', false]]);
 });
 
 test('BRAKE: one incident on > 25% of upcoming sorties → all HOLD in one batch, no cancel or reschedule', () => {
@@ -112,6 +134,8 @@ test('BRAKE: one incident on > 25% of upcoming sorties → all HOLD in one batch
     ['T-003', 'BRAKE_HOLD', true, '41', undefined],
   ]);
   assert.deepEqual(out.map((a) => a.key), hit.map((s) => `${s.sortie_id}|41|${s.launch_at}`), 'the brake replaces actions, adds none');
+  const reroutes = run([sortie({ sortie_id: 'T-004', cells: '54.5_20.5;56.5_21.0' }), sortie({ sortie_id: 'T-005', window_end: at(100) }), ...quiet(5)]);
+  assert.deepEqual(reroutes.map((a) => [a.level, a.new_cells]), [['BRAKE_HOLD', undefined], ['BRAKE_HOLD', undefined]], 'nor reroutes or holds alone');
 });
 
 test('BRAKE: exactly 25% does not brake; WATCH counts toward it but stays WATCH; L4 is never rewritten', () => {
@@ -131,11 +155,11 @@ test('dedupe: a key already in decisions is never acted on twice', () => {
   assert.deepEqual(run(sorties, { done: [first[0].key] }).map((a) => a.sortie_id), ['T-002']);
 });
 
-test('only PLANNED and RESCHEDULED are gated: HOLD, CANCELLED and LAUNCH_APPROVED are left alone', () => {
-  const sorties = ['PLANNED', 'RESCHEDULED', 'HOLD', 'CANCELLED', 'LAUNCH_APPROVED']
+test('only PLANNED, RESCHEDULED and REROUTED are gated: HOLD, CANCELLED and LAUNCH_APPROVED are left alone', () => {
+  const sorties = ['PLANNED', 'RESCHEDULED', 'REROUTED', 'HOLD', 'CANCELLED', 'LAUNCH_APPROVED']
     .map((status, i) => sortie({ sortie_id: `T-00${i + 1}`, status }));
-  assert.deepEqual(run([...sorties, ...quiet(7)]).map((a) => [a.sortie_id, a.level]),
-    [['T-001', 'L1_RESCHEDULE'], ['T-002', 'L1_RESCHEDULE']]);
+  assert.deepEqual(run([...sorties, ...quiet(9)]).map((a) => [a.sortie_id, a.level]),
+    [['T-001', 'L1_RESCHEDULE'], ['T-002', 'L1_RESCHEDULE'], ['T-003', 'L1_RESCHEDULE']]);
 });
 
 test('launches in the past or right now are ignored', () => {
@@ -161,7 +185,7 @@ test('contract fixtures: sorties.sample.csv against cell_status.sample.json at 2
     'T-005': ['L4_SPOOF_HOLD', 42],
     'T-006': ['UNVERIFIED', null],
   });
-  const C6 = ['sortie_id', 'launch_at', 'key', 'incident_id', 'level', 'human', 'reason', 'new_launch_at', 'batch'];
+  const C6 = ['sortie_id', 'launch_at', 'key', 'incident_id', 'level', 'human', 'reason', 'new_launch_at', 'new_cells', 'batch'];
   for (const a of out) {
     for (const k of Object.keys(a)) assert.ok(C6.includes(k), `${a.sortie_id}: ${k} is a C6 field`);
     assert.match(a.key, /^T-\d+\|(\d+\|(watch|[\dT:-]+Z)|unknown\|[\dT:-]+Z)$/);

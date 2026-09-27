@@ -80,7 +80,12 @@ function main() {
       settle(() => cached('telegram', 60e3, async () => {
         const bot = `https://api.telegram.org/bot${E.TELEGRAM_BOT_TOKEN}`;
         const me = await cached('tg-me', 600e3, async () => (await getJson(`${bot}/getMe`)).result);
-        return telegramSummary(me, (await getJson(`${bot}/getWebhookInfo`)).result, Date.now());
+        const group = !E.TELEGRAM_CHAT_ID ? null : await cached('tg-group', 600e3, async () => {   // the ops group: title and size only
+          const q = `chat_id=${encodeURIComponent(E.TELEGRAM_CHAT_ID)}`;
+          const [chat, n] = await Promise.all([getJson(`${bot}/getChat?${q}`), getJson(`${bot}/getChatMemberCount?${q}`)]);
+          return { chat: chat.result, members: n.result };
+        }).catch(() => null);
+        return telegramSummary(me, (await getJson(`${bot}/getWebhookInfo`)).result, Date.now(), group && group.chat, group && group.members);
       })),
     ]);
     return { now: isoZ(now), nextCollect: nextCollect(now), n8n, apify, telegram,
@@ -108,7 +113,7 @@ function main() {
     try {
       const since = new Date(Date.now() - 48 * 3600e3).toISOString();
       const [sorties, decisions, sync] = await Promise.all([sbGet('sorties?select=*'),
-        sbGet(`decisions?select=id,ts,sortie_id,level,new_launch_at,human_answer,decided_by,reason&ts=gte.${since}&order=id.desc&limit=1000`),
+        sbGet(`decisions?select=id,ts,sortie_id,level,new_launch_at,new_cells,human_answer,decided_by,reason&ts=gte.${since}&order=id.desc&limit=1000`),
         sbGet('sheet_sync?select=synced_at')]);
       fleet.setSorties(boardRows(sorties, decisions, sync[0] && sync[0].synced_at));
       if (fleet.mirrorReal) fleet.setRealBad(await sbGet('cell_status?select=cell_id,state&state=in.(JAMMED,SPOOF)'));

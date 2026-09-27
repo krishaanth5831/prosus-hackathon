@@ -16,7 +16,7 @@ const REPORT_MIN = 15;            // a leg report at least every 15 min (every r
 const EARLY_SAMPLES = 15;         // a bad spell is reported after 15 samples (30 s at one sample per 2 s)
 const MIN_GAP_MIN = 5;            // at most one report per drone every 5 min, except the first of a new bad spell
 const SPELL_COOLDOWN_MIN = 10;    // ... and that one at most every 10 min per cell (a fast drone crosses it again and again)
-const FLYABLE = ['PLANNED', 'RESCHEDULED', 'LAUNCH_APPROVED'];
+const FLYABLE = ['PLANNED', 'RESCHEDULED', 'REROUTED', 'LAUNCH_APPROVED'];
 const KEPT_DOWN = ['HOLD', 'CANCELLED'];
 const SOURCE = 'sim:border-patrol-mavlink';
 const POOL = Array.from({ length: 16 }, (_, i) => `BG-UAV-${String(i + 1).padStart(2, '0')}`);

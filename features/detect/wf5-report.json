@@ -50,15 +50,15 @@
       "name": "report.sql",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
+      "executeOnce": true,
+      "alwaysOutputData": true,
       "position": [
         440,
         300
       ],
-      "executeOnce": true,
-      "alwaysOutputData": true,
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- WF5 morning report: one row covering the last 24 h.\n-- resolution_rate = (L1+L2) / (L1+L2+L3+L4+BRAKE), counting only decisions tied to an incident.\n-- WATCH and UNVERIFIED are not actions, so they are counted per level but left out of the rate.\nwith d as (\n  select * from decisions where ts > now() - interval '24 hours'\n), acted as (\n  select count(*) filter (where level in ('L1_RESCHEDULE','L2_CANCEL')) as auto,\n         count(*) filter (where level in ('L1_RESCHEDULE','L2_CANCEL','L3_HOLD','L4_SPOOF_HOLD','BRAKE_HOLD')) as total\n  from d where incident_id is not null\n)\nselect\n  (select count(*) from incidents where opened_at > now() - interval '24 hours') as incidents_opened,\n  (select string_agg(type || ' ' || cell_id || ' (' || severity || ')', ', ' order by opened_at)\n     from incidents where opened_at > now() - interval '24 hours') as incidents_list,\n  (select count(*) from incidents where status in ('open','may_lift')) as incidents_live,\n  (select coalesce(jsonb_object_agg(level, n), '{}'::jsonb)\n     from (select level, count(*) n from d group by level) x) as per_level,\n  a.auto as resolved_by_agent,\n  a.total as acted_on,\n  case when a.total > 0 then round(100.0 * a.auto / a.total) end as resolution_rate_pct,\n  (select count(*) from agent_log where ts > now() - interval '24 hours'\n     and (action like 'SWITCH SOURCE%' or reason ilike '%switched to%')) as failovers,\n  (select count(*) from decisions\n     where level in ('L3_HOLD','L4_SPOOF_HOLD','BRAKE_HOLD') and human_answer is null) as pending_holds,\n  (select string_agg(distinct sortie_id, ', ') from decisions\n     where level in ('L3_HOLD','L4_SPOOF_HOLD','BRAKE_HOLD') and human_answer is null) as pending_hold_sorties,\n  to_char(now() at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as generated_at\nfrom acted a;\n",
+        "query": "-- WF5 morning report: one row covering the last 24 h.\n-- resolution_rate = what the agent resolved on its own (reroute, reschedule, cancel, HOLD by the agent) / every action\n-- (those + L3 + L4 + BRAKE, the HOLDs that ask a human), counting only decisions tied to an incident.\n-- WATCH and UNVERIFIED are not actions, so they are counted per level but left out of the rate.\nwith d as (\n  select * from decisions where ts > now() - interval '24 hours'\n), acted as (\n  select count(*) filter (where level in ('L1_REROUTE','L1_RESCHEDULE','L2_CANCEL','L3_AUTO_HOLD')) as auto,\n         count(*) filter (where level in ('L1_REROUTE','L1_RESCHEDULE','L2_CANCEL','L3_AUTO_HOLD','L3_HOLD','L4_SPOOF_HOLD','BRAKE_HOLD')) as total\n  from d where incident_id is not null\n)\nselect\n  (select count(*) from incidents where opened_at > now() - interval '24 hours') as incidents_opened,\n  (select string_agg(type || ' ' || cell_id || ' (' || severity || ')', ', ' order by opened_at)\n     from incidents where opened_at > now() - interval '24 hours') as incidents_list,\n  (select count(*) from incidents where status in ('open','may_lift')) as incidents_live,\n  (select coalesce(jsonb_object_agg(level, n), '{}'::jsonb)\n     from (select level, count(*) n from d group by level) x) as per_level,\n  a.auto as resolved_by_agent,\n  a.total as acted_on,\n  case when a.total > 0 then round(100.0 * a.auto / a.total) end as resolution_rate_pct,\n  (select count(*) from agent_log where ts > now() - interval '24 hours'\n     and (action like 'SWITCH SOURCE%' or reason ilike '%switched to%')) as failovers,\n  (select count(*) from decisions\n     where level in ('L3_HOLD','L4_SPOOF_HOLD','BRAKE_HOLD') and human_answer is null) as pending_holds,\n  (select string_agg(distinct sortie_id, ', ') from decisions\n     where level in ('L3_HOLD','L4_SPOOF_HOLD','BRAKE_HOLD') and human_answer is null) as pending_hold_sorties,\n  to_char(now() at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as generated_at\nfrom acted a;\n",
         "options": {}
       },
       "credentials": {
@@ -178,6 +178,29 @@
           "name": "AirGuard Postgres"
         }
       }
+    },
+    {
+      "id": "224dc695-1dab-4942-b13c-5b5d85abe316",
+      "name": "Telegram log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "onError": "continueRegularOutput",
+      "position": [
+        1100,
+        480
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into telegram_log (workflow, kind, message_id, text, buttons, who, ts)\nvalues ($1, $2, nullif($3, '')::bigint, $4, nullif($5, '')::jsonb, nullif($6, ''), coalesce(to_timestamp(nullif($7, '')::double precision), now()));",
+        "options": {
+          "queryReplacement": "={{ (r => ['WF5', 'message', String(r.message_id || ''), String(r.text || ''), r.reply_markup && r.reply_markup.inline_keyboard ? JSON.stringify(r.reply_markup.inline_keyboard.map((row) => row.map((b) => b.text))) : '', '', String(r.date || '')])($json.result || {}) }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
     }
   ],
   "connections": {
@@ -230,6 +253,11 @@
         [
           {
             "node": "Report line",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram log",
             "type": "main",
             "index": 0
           }

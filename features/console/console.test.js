@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { boardRows, column, logKind, localTimes } = require('./board.js');
+const { boardRows, column, chatThread, logKind, localTimes } = require('./board.js');
 const { n8nSummary, apifySummary, telegramSummary, aircraftView, nextCollect } = require('./status.js');
 const GEO = require('./geo.js');
 const { routeFor, positionAt, flownPath } = require('./route.js');
@@ -41,6 +41,34 @@ test('board: decisions made after the mirror synced show at once, as act.js and 
   assert.deepEqual([later[0].status, later[0].pending], ['PLANNED', false], 'false alarm puts it back to PLANNED');
 });
 
+test('board: a reroute shows the kept cells at once; a HOLD by the agent waits for nobody; Cancel on a card cancels', () => {
+  const [r, h, c] = boardRows([row('T-1'), row('T-2', { cells: '54.0_23.5' }), row('T-3', { status: 'HOLD' })], [
+    { id: 1, ts: '2026-09-27T09:05:00Z', sortie_id: 'T-1', level: 'L1_REROUTE', new_cells: '54.0_23.0', reason: 'jammed 54.0_23.5' },
+    { id: 2, ts: '2026-09-27T09:05:00Z', sortie_id: 'T-2', level: 'L3_AUTO_HOLD', reason: 'no slot' },
+    { id: 3, ts: '2026-09-27T08:00:00Z', sortie_id: 'T-3', level: 'L3_HOLD', human_answer: 'cancel', decided_by: 'human:K', reason: 'priority' },
+  ], SYNC);
+  assert.deepEqual([r.status, r.cells, r.cellList, r.pending], ['REROUTED', '54.0_23.0', ['54.0_23.0'], false]);
+  assert.deepEqual([h.status, h.pending, h.decided_by], ['HOLD', false, 'agent'], 'the agent held it on its own: no card, nobody asked');
+  assert.deepEqual([c.status, c.decided_by], ['CANCELLED', 'human:K']);
+  assert.deepEqual([r, h, c].map((x) => column(x, Date.parse('2026-09-27T09:30:00Z'), new Set())), ['changed', 'hold', 'changed']);
+});
+
+test('Telegram view: the group in order, a card answered by an edit loses its buttons, a tap quotes its card', () => {
+  const card = '⛔ HOLD · T-306 · LT Border Guard · Lazdijai (DEMO) · launch 12:51\nJAMMED cell 54.0_23.5\nAgent: held. Needs your call. It never says safe.';
+  const t = chatThread([
+    { id: 3, ts: '2026-09-27T10:02:00Z', workflow: 'WF6', kind: 'tap', message_id: 51, text: 'Cancel', who: 'human:Krish' },
+    { id: 1, ts: '2026-09-27T10:00:00Z', workflow: 'WF3', kind: 'message', message_id: 50, text: '🧭 REROUTED · T-305', buttons: null },
+    { id: 2, ts: '2026-09-27T10:00:01Z', workflow: 'WF3', kind: 'message', message_id: 51, text: card, buttons: [['Hold', 'Launch anyway', 'Cancel']] },
+    { id: 4, ts: '2026-09-27T10:02:01Z', workflow: 'WF6', kind: 'edit', message_id: 51, text: `${card}\n\n✖️ Cancelled by Krish at 12:02.` },
+    { id: 5, ts: '2026-09-27T10:03:00Z', workflow: 'WF6', kind: 'edit', message_id: 7, text: 'a card sent before the log began' },
+  ]);
+  assert.deepEqual(t.map((m) => [m.type, m.id]), [['bot', 1], ['bot', 2], ['tap', 3], ['bot', 5]]);
+  assert.deepEqual([t[1].buttons, t[1].edited, t[1].text.endsWith('✖️ Cancelled by Krish at 12:02.')], [null, '2026-09-27T10:02:01Z', true]);
+  assert.deepEqual([t[2].who, t[2].label, t[2].quote], ['Krish', 'Cancel', '⛔ HOLD · T-306 · LT Border Guard · Lazdijai (DEMO) · launch 12:51']);
+  const open = chatThread([{ id: 9, ts: 't', workflow: 'WF3', kind: 'message', message_id: 60, text: card, buttons: [['Hold', 'Launch anyway', 'Cancel']] }]);
+  assert.deepEqual(open[0].buttons, [['Hold', 'Launch anyway', 'Cancel']], 'unanswered: the buttons are still there');
+});
+
 test('board: columns and log kinds', () => {
   const now = Date.parse('2026-09-27T09:30:00Z');
   const [held, flying, moved, upcoming, past] = boardRows([row('T-1'), row('T-2', { launch_at: '2026-09-27T09:10:00Z' }), row('T-3'), row('T-4'),
@@ -72,9 +100,12 @@ test('status: n8n, Apify and Telegram summaries carry names, states and times on
   { source: 'adsb.fi', aircraft: 31, failover: true, errors: ['adsb.lol: HTTP 503'] }, { cronExpression: '*/5 * * * *', isEnabled: true, nextRunAt: '2026-09-27T10:00:00Z' }, now);
   assert.deepEqual([a.last.status, a.lastOk.secs, a.source, a.failover, a.hour], ['FAILED', 8, 'adsb.fi', true, { runs: 2, failed: 1 }]);
   assert.deepEqual(a.schedule, { cron: '*/5 * * * *', enabled: true, nextRunAt: '2026-09-27T10:00:00Z' });
-  const t = telegramSummary({ username: 'airguard_ops_demo_bot' }, { url: 'https://x/webhook/y', pending_update_count: 0, last_error_date: now / 1000 - 60, last_error_message: 'Bad Gateway' }, now);
-  assert.deepEqual(t, { bot: 'airguard_ops_demo_bot', webhook: true, pending: 0, lastError: { at: '2026-09-27T09:59:00.000Z', message: 'Bad Gateway' } });
+  const t = telegramSummary({ username: 'airguard_ops_demo_bot' }, { url: 'https://x/webhook/y', pending_update_count: 0, last_error_date: now / 1000 - 60, last_error_message: 'Bad Gateway' }, now,
+    { id: -1234567890, title: 'AirGuard Ops', type: 'group' }, 3);
+  assert.deepEqual(t, { bot: 'airguard_ops_demo_bot', webhook: true, pending: 0, lastError: { at: '2026-09-27T09:59:00.000Z', message: 'Bad Gateway' },
+    group: { title: 'AirGuard Ops', members: 3 } });
   assert.equal(JSON.stringify(t).includes('https://x'), false, 'the webhook URL never reaches the browser');
+  assert.equal(JSON.stringify(t).includes('1234567890'), false, 'nor the group id');
   assert.equal(nextCollect(Date.parse('2026-09-27T10:02:10Z')), '2026-09-27T10:05:00.000Z');
 });
 
@@ -225,6 +256,49 @@ test('demo plan: 16 fictional C5 test sorties on the eastern-flank borders, 4 al
   assert.deepEqual([...new Set(rows.map((r) => r.priority))].sort(), ['low', 'priority', 'routine']);
 });
 
+test('demo plan: one simulated jammer on Lazdijai 54.0_23.5 gives a reroute and a reschedule (texts) and a card, no brake', () => {
+  const { decide } = require('../gate/decide.js');
+  const now = new Date('2026-09-27T10:00:00Z'), rows = demoPlan(new Date(now.getTime() - 10 * 60e3));   // the jammer 10 min after loading
+  const cells = { '54.0_23.5': { cell_id: '54.0_23.5', state: 'JAMMED', incident_id: 90, severity: 'medium', evidence: 'SIMULATED drone BG-UAV-05: 20/40 degraded' } };
+  const out = decide({ sorties: rows, cells, now }).filter((a) => a.incident_id === 90);
+  assert.deepEqual(out.map((a) => [a.sortie_id, a.level, a.human, a.new_cells]), [
+    ['T-305', 'L1_REROUTE', false, '54.0_23.0'], ['T-306', 'L3_HOLD', true, undefined], ['T-307', 'L1_RESCHEDULE', false, undefined]]);
+  const fly = airborne(boardRows(rows.map((r) => ({ ...r })), [], SYNC), now.getTime()).map((s) => [s.sortie_id, s.cells]);
+  assert.ok(fly.some(([id, c]) => id === 'T-301' && c.includes('54.0_23.5')), 'a drone is up over the jammed cell to feel it');
+});
+
+test('C14 telegram_log: the n8n parameters for a card, a text, an edit, a tap and a refused tap, never an id or a stranger', () => {
+  const { TG_SQL, sentParams, editParams, tapParams, refusedParams } = require('./telegramLog.js');
+  const run = (expr, $json, trigger) => {
+    assert.match(expr, /^=\{\{ .* \}\}$/s);
+    return new Function('$json', '$', `return (${expr.slice(4, -3)});`)($json, () => ({ first: () => ({ json: trigger }) }));
+  };
+  const card = { ok: true, result: { message_id: 51, from: { id: 1, is_bot: true }, chat: { id: -100123, type: 'group' }, date: 1790500000,
+    text: '⛔ HOLD · T-306', reply_markup: { inline_keyboard: [[{ text: 'Hold', callback_data: 'k|T-306|9' },
+      { text: 'Launch anyway', callback_data: 'l|T-306|9' }, { text: 'Cancel', callback_data: 'c|T-306|9' }]] } } };
+  assert.deepEqual(run(sentParams('WF3'), card), ['WF3', 'message', '51', '⛔ HOLD · T-306', '[["Hold","Launch anyway","Cancel"]]', '', '1790500000']);
+  assert.deepEqual(run(sentParams('WF4'), { ok: true, result: { message_id: 7, date: 1, text: '⚠️ AirGuard: x' } }), ['WF4', 'message', '7', '⚠️ AirGuard: x', '', '', '1']);
+  assert.deepEqual(run(editParams, { ok: true, result: { message_id: 51, date: 1790500000, edit_date: 1790500100, text: 'card\n\n✖️ Cancelled' } }),
+    ['WF6', 'edit', '51', 'card\n\n✖️ Cancelled', '', '', '1790500100']);
+  assert.deepEqual(run(tapParams, { message_id: 51, label: 'Cancel', who: 'human:Krish', chat_id: -100123 }), ['WF6', 'tap', '51', 'Cancel', '', 'human:Krish', '']);
+  const refused = run(refusedParams, {}, { callback_query: { from: { id: 999, first_name: 'Mallory' }, message: { message_id: 51, chat: { id: -100123 } }, data: 'l|T-306|9' } });
+  assert.deepEqual(refused, ['WF6', 'tap', '51', 'a button', '', 'not on the allowlist', '']);
+  for (const p of [run(sentParams('WF3'), card), refused]) assert.doesNotMatch(JSON.stringify(p), /100123|Mallory|999|\|T-306/, 'no chat id, user id, name or callback data');
+  assert.deepEqual([...TG_SQL.matchAll(/\$(\d)/g)].map((m) => m[1]), ['1', '2', '3', '4', '5', '6', '7']);
+});
+
+test('C14: every Telegram message any workflow sends goes to its "Telegram log" node right away', () => {
+  const { TG_SQL, sentParams } = require('./telegramLog.js');
+  const exports = { WF2: '../detect/wf2-detect.json', WF3: '../gate/wf3-gate.json', WF4: '../collect/wf4-heal.json', WF5: '../detect/wf5-report.json' };
+  for (const [wfn, f] of Object.entries(exports)) {
+    const wf = JSON.parse(text(f)), log = wf.nodes.find((n) => n.name === 'Telegram log');
+    assert.deepEqual([log.parameters.query, log.parameters.options.queryReplacement, log.onError], [TG_SQL, sentParams(wfn), 'continueRegularOutput'], wfn);
+    const senders = wf.nodes.filter((n) => n.type === 'n8n-nodes-base.telegram' && (n.parameters.operation ?? 'sendMessage') === 'sendMessage');
+    assert.ok(senders.length > 0, wfn);
+    for (const n of senders) assert.ok((wf.connections[n.name]?.main?.[0] ?? []).some((x) => x.node === 'Telegram log'), `${wfn}: ${n.name} → Telegram log`);
+  }
+});
+
 test('WF8 helpers: only valid test rows are written, only test rows are deleted, bottom up', () => {
   assert.equal(consoleRequest({ op: 'drop' }).ok, false);
   assert.deepEqual(consoleRequest({ op: 'remove', rows: [row('S-1')] }), { ok: true, op: 'remove', rows: [], reason: '' });
@@ -280,7 +354,7 @@ test('server: only this host, and POSTs only from this page', () => {
   assert.ok(server.indexOf("pathname === '/api/fleet/speed'") > server.indexOf('if (!sameOrigin('), 'the speed switch is a POST behind the origin check');
 });
 
-const PAGE_FILES = ['index.html', 'app.js', 'board.js', 'route.js', 'geo.js', 'fleet.js', 'demoPlan.js', 'sheetOps.js', 'status.js', 'server.js'];
+const PAGE_FILES = ['index.html', 'app.js', 'board.js', 'route.js', 'geo.js', 'fleet.js', 'demoPlan.js', 'sheetOps.js', 'status.js', 'server.js', 'telegramLog.js'];
 test('page: never safe or clear, no green, no key in the repo, CEST, pinned and checked libraries', () => {
   for (const f of PAGE_FILES) {
     const src = text(f).replace(/never (shows|says) safe/g, '');

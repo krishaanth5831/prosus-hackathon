@@ -2,7 +2,7 @@
 -- 1. Answer the tapped HOLD (or every unanswered HOLD of a brake batch): decisions.human_answer, once only.
 --    Nothing claimed = the card was already answered, and nothing else happens.
 -- 2. False alarm: raise the cell's threshold by 0.05 (max 0.6) and close the incident with a note, once per incident.
--- Parameters: $1 answer (keep | launch | false_alarm) · $2 mode (single | batch | none) · $3 decision id
+-- Parameters: $1 answer (keep | launch | cancel | false_alarm, the last only from older cards) · $2 mode (single | batch | none) · $3 decision id
 --             $4 sortie id · $5 incident id (batch) · $6 officer name. One row per claimed decision.
 with claimed as (
   update decisions set human_answer = $1

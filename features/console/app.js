@@ -1,15 +1,16 @@
 // Owner: Krish (see CLAUDE.md)
 // AirGuard ops console, browser side. Reads Supabase live with the anon key (select-only by RLS): cell_status,
-// incidents, agent_log, decisions, the sortie mirror and drone_reports, pushed by Supabase Realtime. Pipeline health
+// incidents, agent_log, decisions, the sortie mirror, drone_reports and the Telegram group (telegram_log), pushed by
+// Supabase Realtime. Pipeline health
 // comes from the local server (/api/status: n8n, Apify, Telegram) and the simulated fleet from /api/fleet/stream.
 // Times are shown in CEST (Europe/Amsterdam) with the UTC time in the hover title; the data itself stays UTC.
 (() => {
   const CFG = window.AIRGUARD || {};
   const TZ = 'Europe/Amsterdam';
   const SHOW_TEST = new URLSearchParams(location.search).has('test');     // C11 test cells (89.5_*) stay hidden
-  const TABLES = ['agent_log', 'incidents', 'decisions', 'drone_reports', 'observations', 'sorties', 'sheet_sync'];
-  const LEVEL = { L1_RESCHEDULE: 'RESCHEDULED +2 h', L2_CANCEL: 'CANCELLED', L3_HOLD: 'HOLD', L4_SPOOF_HOLD: 'HOLD · SPOOFING',
-    BRAKE_HOLD: 'HOLD · BRAKE', UNVERIFIED: 'UNVERIFIED', WATCH: 'WATCH' };
+  const TABLES = ['agent_log', 'incidents', 'decisions', 'drone_reports', 'observations', 'sorties', 'sheet_sync', 'telegram_log'];
+  const LEVEL = { L1_REROUTE: 'REROUTED', L1_RESCHEDULE: 'RESCHEDULED +2 h', L2_CANCEL: 'CANCELLED', L3_AUTO_HOLD: 'HOLD · BY THE AGENT',
+    L3_HOLD: 'HOLD', L4_SPOOF_HOLD: 'HOLD · SPOOFING', BRAKE_HOLD: 'HOLD · BRAKE', UNVERIFIED: 'UNVERIFIED', WATCH: 'WATCH' };
   const STATE_LABEL = { JAMMED: 'JAMMED', SPOOF: 'SPOOF', UNKNOWN: 'UNKNOWN', NO_KNOWN_ISSUE: 'NO KNOWN ISSUE' };
 
   // ---------- helpers ----------
@@ -71,7 +72,7 @@
   }
 
   // ---------- state ----------
-  const S = { cells: new Map(), incidents: new Map(), log: [], decisions: new Map(), sorties: new Map(), sync: null, reports: [],
+  const S = { cells: new Map(), incidents: new Map(), log: [], decisions: new Map(), sorties: new Map(), sync: null, reports: [], tg: [], tgUnread: 0,
     fleet: null, status: null, air: null, obsHour: null, rt: 'CONNECTING', view: 'live', sel: null, tab: 'tel', filter: 'all',
     hist: new Map(), trails: new Map(), seenEvents: new Set(), lastRuns: {}, confirm: null, newLogId: null };
   const rows = () => window.boardRows([...S.sorties.values()], [...S.decisions.values()], S.sync && S.sync.synced_at);
@@ -257,7 +258,9 @@
     document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
     document.querySelectorAll('.view').forEach((s) => s.classList.toggle('on', s.id === `v-${v}`));
     if (v === 'live') setTimeout(() => map.invalidateSize(), 50);
+    if (v === 'tg') { S.tgUnread = 0; renderTgBadge(); }
     render();
+    if (v === 'tg') renderTg(true);
   }
   document.querySelectorAll('#nav button').forEach((b) => { b.onclick = () => go(b.dataset.v); });
   $('#close').onclick = () => { $('#drawer').classList.remove('open'); $('#v-live').classList.remove('dopen'); S.sel = null; drawDrones(); };
@@ -373,19 +376,19 @@
     $('#demoBar').hidden = !CFG.demo;
     $('#pending').innerHTML = g.officer.map((r) => `<div class="tg"><div class="lbl" style="margin-bottom:6px">Telegram · waiting for the duty officer${bot ? ` · <a href="https://t.me/${esc(bot)}" target="_blank" rel="noopener">@${esc(bot)}</a>` : ''}</div>`
       + `<div class="msg">⛔ ${esc(LEVEL[r.level] || 'HOLD')} · ${esc(r.sortie_id)} · ${esc(r.unit)} · launch ${HM.format(new Date(ms(r.launch_at)))}\n${esc(local(r.reason, r.decision && r.decision.ts))}\nAgent: held. Needs your call. It never says safe.</div>`
-      + `<div class="keys"><span>Keep HOLD</span><span>Launch anyway</span><span>False alarm</span></div><div class="note">Answer on the phone; this page updates the moment WF6 records it.</div></div>`).join('');
-    const lv = (l) => (['L3_HOLD', 'L4_SPOOF_HOLD', 'BRAKE_HOLD'].includes(l) ? 'hold' : ['L1_RESCHEDULE', 'L2_CANCEL'].includes(l) ? 'move' : 'quiet');
+      + `<div class="keys"><span>Hold</span><span>Launch anyway</span><span>Cancel</span></div><div class="note">Answer on the phone; this page updates the moment WF6 records it.</div></div>`).join('');
+    const lv = (l) => (['L3_AUTO_HOLD', 'L3_HOLD', 'L4_SPOOF_HOLD', 'BRAKE_HOLD'].includes(l) ? 'hold' : ['L1_REROUTE', 'L1_RESCHEDULE', 'L2_CANCEL'].includes(l) ? 'move' : 'quiet');
     const card = (r) => `<div class="card${r.pending ? ' need' : ''}"><div class="top"><span>${esc(r.sortie_id)}</span><span class="pri">${esc(r.priority)}</span></div>`
       + `<div class="lbl" style="margin-top:3px;text-transform:none;letter-spacing:0">${esc(r.unit)}</div>`
       + `<div class="lbl">launch ${tm(r.launch_at)} · ${rel(r.launch_at)}</div><div class="lbl">${r.cellList.map(esc).join(' · ')}</div>`
       + `<div class="lv ${r.level ? lv(r.level) : 'quiet'}">${r.level ? LEVEL[r.level] : esc(r.status)}${r.decided_by && r.decided_by.startsWith('human:') ? ` · ${esc(r.decided_by.slice(6))}` : ''}</div>`
       + (r.reason ? `<div class="why">${esc(local(r.reason, (r.decision && r.decision.ts) || r.changed_at))}</div>` : '') + '</div>';
-    const cols = [['officer', 'NEEDS THE OFFICER'], ['flight', 'IN FLIGHT'], ['hold', 'ON HOLD'], ['changed', 'MOVED OR CANCELLED'], ['upcoming', 'UPCOMING']];
+    const cols = [['officer', 'NEEDS THE OFFICER'], ['flight', 'IN FLIGHT'], ['hold', 'ON HOLD'], ['changed', 'REROUTED, MOVED OR CANCELLED'], ['upcoming', 'UPCOMING']];
     $('#board').innerHTML = cols.map(([k, t]) => `<div class="col"><h3>${t}<span style="color:var(--muted)">${g[k].length}</span></h3>${g[k].map(card).join('') || '<div class="note">none</div>'}</div>`).join('');
     $('#past').innerHTML = g.past.length ? `Launched earlier and no longer flying: ${g.past.map((r) => `${esc(r.sortie_id)} (${esc(r.status)}, ${tm(r.launch_at)})`).join(', ')}` : '';
     const c = S.confirm;
     $('#confirm').innerHTML = !c ? '' : `<div class="confirm"><p>${c === 'load'
-      ? 'Writes 16 fictional sorties (T-301 to T-316) into the Google Sheet and replaces older T-* test rows. Four launch right away and the simulated fleet flies them. The gate checks the other twelve every 5 minutes, so expect real Telegram messages (UNVERIFIED notices, HOLD cards) on your phone.'
+      ? 'Writes 16 fictional sorties (T-301 to T-316) into the Google Sheet and replaces older T-* test rows. Four launch right away and the simulated fleet flies them. The gate checks the other twelve every 5 minutes, so expect real Telegram messages in the ops group. To see the agent act: put a simulated jammer on Lazdijai 54.0_23.5 within 20 minutes; it reroutes T-305, asks about priority T-306 and reschedules T-307.'
       : 'Removes every T-* test sortie from the Google Sheet. Other rows stay.'}</p><button class="btn warn" data-go="${c}">${c === 'load' ? 'Load 16 demo sorties' : 'Remove T-* sorties'}</button><button class="btn" data-go="cancel">Cancel</button></div>`;
   }
   function renderLog() {
@@ -442,6 +445,41 @@
     $('#incOpen').textContent = [...S.incidents.values()].filter((i) => SHOW_TEST || !isTest(i.cell_id)).length;
   }
 
+  // ---------- Telegram: a live copy of the ops group (telegram_log, C14) ----------
+  const splitOutcome = (t) => { const i = String(t).lastIndexOf('\n\n'); return i > 0 ? [t.slice(0, i), t.slice(i + 2)] : [t, null]; };
+  const initials = (n) => String(n || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+  function tgBot(m) {
+    const card = !!m.buttons || /^⛔/.test(m.first), [body, outcome] = m.edited ? splitOutcome(m.text) : [m.text, null];
+    const kind = card ? `card${m.buttons ? ' wait' : ''}` : /^⚠️/.test(m.text) ? 'alert' : '';
+    return `<div class="tgb ${kind}" data-id="${esc(m.id)}"><div class="av">AG</div><div class="bub"><div class="who">AirGuard<span>${esc(m.workflow)}</span></div>`
+      + `<div class="txt">${esc(body)}${outcome ? `<span class="out">${esc(outcome)}</span>` : ''}</div>`
+      + (m.buttons ? `${m.buttons.map((row) => `<div class="keys">${row.map((b) => `<span>${esc(b)}</span>`).join('')}</div>`).join('')}<div class="flag">WAITING FOR THE DUTY OFFICER</div>` : '')
+      + `<div class="meta">${m.edited ? 'answered · ' : ''}${tm(m.ts)}</div></div></div>`;
+  }
+  function tgTap(m) {
+    if (m.who === 'not on the allowlist') return `<div class="tg-sys">A Telegram account that is not on the allowlist tapped a button. Refused, nothing changed. ${tm(m.ts)}</div>`;
+    return `<div class="tgb me"><div class="av">${esc(initials(m.who))}</div><div class="bub"><div class="who">${esc(m.who || 'officer')}<span>duty officer</span></div>`
+      + (m.quote ? `<div class="quote">${esc(m.quote)}</div>` : '') + `<div class="txt">tapped <b>${esc(m.label)}</b></div><div class="meta">${tm(m.ts)}</div></div></div>`;
+  }
+  function renderTg(bottom) {
+    const feed = $('#tgFeed'), items = window.chatThread(S.tg), today = DAY.format(new Date());
+    const near = bottom || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 120;
+    let day = '', html = '';
+    for (const m of items) {
+      const d = DAY.format(new Date(ms(m.ts)));
+      if (d !== day) { day = d; html += `<div class="tg-day">${d === today ? 'Today' : esc(d)}</div>`; }
+      html += m.type === 'tap' ? tgTap(m) : tgBot(m);
+    }
+    feed.innerHTML = html || '<p class="sub" style="text-align:center;margin:40px auto">Nothing in the group yet. AirGuard posts here when it acts.</p>';
+    if (near) feed.scrollTop = feed.scrollHeight;
+    const t = (S.status && S.status.telegram) || {}, g = t.group || {};
+    $('#tgTitle').textContent = g.title || 'Telegram ops group';
+    $('#tgSub').textContent = [g.members ? `${g.members} members` : 'group', t.bot ? `bot @${t.bot}` : null, t.webhook === false ? 'webhook missing' : null].filter(Boolean).join(' · ');
+    const wait = items.filter((m) => m.type === 'bot' && m.buttons).length, sent = items.filter((m) => m.type === 'bot' && DAY.format(new Date(ms(m.ts))) === today).length;
+    $('#tgStat').innerHTML = `<b>${wait}</b> waiting for an answer<br><b>${sent}</b> sent today`;
+  }
+  function renderTgBadge() { $('#tgCount').hidden = !S.tgUnread; $('#tgCount').textContent = S.tgUnread > 99 ? '99+' : S.tgUnread; }
+
   function render() {
     renderChips(); renderTicker();
     if (S.view === 'live' && S.sel) renderDrawer(false);
@@ -449,6 +487,7 @@
     if (S.view === 'sorties') renderBoard();
     if (S.view === 'log') renderLog();
     if (S.view === 'pipe') renderPipe();
+    if (S.view === 'tg') renderTg(false);
   }
   const soonRender = debounce(render, 250);
 
@@ -510,7 +549,7 @@
   async function loadAll() {
     const since = (h) => new Date(Date.now() - h * 3600e3).toISOString();
     try {
-      const [inc, log, dec, sor, sync, rep, obs] = await Promise.all([
+      const [inc, log, dec, sor, sync, rep, obs, tg] = await Promise.all([
         q(sb.from('incidents').select('*').neq('status', 'closed')),
         q(sb.from('agent_log').select('*').order('id', { ascending: false }).limit(200)),
         q(sb.from('decisions').select('*').gte('ts', since(48)).order('id', { ascending: false }).limit(1000)),
@@ -518,9 +557,11 @@
         q(sb.from('sheet_sync').select('*').eq('id', 1)),
         q(sb.from('drone_reports').select('*').gte('ts', since(2)).order('id', { ascending: false }).limit(300)),
         sb.from('observations').select('id', { count: 'exact', head: true }).gte('ts', since(1)),
+        q(sb.from('telegram_log').select('*').order('id', { ascending: false }).limit(400)),
       ]);
       S.incidents = new Map(inc.map((i) => [i.id, i])); S.log = log; S.decisions = new Map(dec.map((d) => [d.id, d]));
       S.sorties = new Map(sor.map((s) => [s.sortie_id, s])); S.sync = sync[0] || null; S.reports = rep; S.obsHour = obs.count;
+      S.tg = tg.reverse();
       await loadCells();
       banner(null);
       render();
@@ -542,6 +583,10 @@
     if (table === 'decisions' && row) S.decisions.set(row.id, row);
     if (table === 'sorties') { if (p.eventType === 'DELETE') S.sorties.delete(old.sortie_id); else if (row) S.sorties.set(row.sortie_id, row); }
     if (table === 'sheet_sync' && row) S.sync = row;
+    if (table === 'telegram_log' && row && !S.tg.some((r) => r.id === row.id)) {
+      S.tg.push(row); S.tg.length > 600 && S.tg.shift();
+      if (S.view !== 'tg' && row.kind !== 'edit') { S.tgUnread++; renderTgBadge(); }
+    }
     soonRender();
   }
   function renderRt() {

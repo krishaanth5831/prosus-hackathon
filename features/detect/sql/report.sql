@@ -1,11 +1,12 @@
 -- WF5 morning report: one row covering the last 24 h.
--- resolution_rate = (L1+L2) / (L1+L2+L3+L4+BRAKE), counting only decisions tied to an incident.
+-- resolution_rate = what the agent resolved on its own (reroute, reschedule, cancel, HOLD by the agent) / every action
+-- (those + L3 + L4 + BRAKE, the HOLDs that ask a human), counting only decisions tied to an incident.
 -- WATCH and UNVERIFIED are not actions, so they are counted per level but left out of the rate.
 with d as (
   select * from decisions where ts > now() - interval '24 hours'
 ), acted as (
-  select count(*) filter (where level in ('L1_RESCHEDULE','L2_CANCEL')) as auto,
-         count(*) filter (where level in ('L1_RESCHEDULE','L2_CANCEL','L3_HOLD','L4_SPOOF_HOLD','BRAKE_HOLD')) as total
+  select count(*) filter (where level in ('L1_REROUTE','L1_RESCHEDULE','L2_CANCEL','L3_AUTO_HOLD')) as auto,
+         count(*) filter (where level in ('L1_REROUTE','L1_RESCHEDULE','L2_CANCEL','L3_AUTO_HOLD','L3_HOLD','L4_SPOOF_HOLD','BRAKE_HOLD')) as total
   from d where incident_id is not null
 )
 select

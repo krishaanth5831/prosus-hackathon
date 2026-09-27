@@ -1,6 +1,9 @@
 // Owner: Person B (see CLAUDE.md)
 // WF3 after decide(): the decisions row, then for each decision that row made new: the sheet change, the Telegram
 // text and the agent_log line. Pure functions, pasted into the WF3 Code nodes.
+// What the agent does on its own (reroute, reschedule, cancel, HOLD) is a plain FYI text in the ops group. Only a high
+// risk HOLD (possible spoofing, a priority sortie, the brake) is a card that asks the duty officer: Hold, Launch anyway
+// or Cancel.
 // Spec: docs/plan.md §6 WF3 + "Card text", contracts C5–C8.
 // Telegram text is HTML (parse_mode HTML, because every cell id has a "_") in local time; sheet and log stay UTC.
 
@@ -18,7 +21,7 @@ const until = (t, now) => {
 // decisionRow(C6 decision) -> decisions row. WF3 inserts it before acting; the unique key makes each action happen once.
 const decisionRow = (d) => ({
   key: d.key, sortie_id: d.sortie_id, incident_id: d.incident_id ?? null, level: d.level, batch: d.batch ?? null,
-  old_launch_at: d.launch_at, new_launch_at: d.new_launch_at ?? null, decided_by: 'agent', reason: d.reason,
+  old_launch_at: d.launch_at, new_launch_at: d.new_launch_at ?? null, new_cells: d.new_cells ?? null, decided_by: 'agent', reason: d.reason,
 });
 
 // The briefing request: the LLM may rephrase the evidence line of a HOLD card, nothing else.
@@ -56,7 +59,7 @@ function act(d, s, now = new Date()) {
   const sid = d.sortie_id, launch = (s && s.launch_at) || isoZ(d.old_launch_at), unit = (s && s.unit) || '';
   const a = { id: String(d.id), key: d.key, sortie_id: sid, level: d.level, reason: d.reason,
     incident_id: d.incident_id == null ? null : String(d.incident_id), batch: d.batch == null ? null : String(d.batch),
-    launch_at: launch, new_launch_at: d.new_launch_at == null ? null : isoZ(d.new_launch_at), unit,
+    launch_at: launch, new_launch_at: d.new_launch_at == null ? null : isoZ(d.new_launch_at), new_cells: d.new_cells ?? null, unit,
     sheet: null, text: null, cb: null, llm: null };
   const head = (tag, when = local(launch)) => esc(`${tag} · ${sid} · ${unit} · launch ${when}`);
   const log = (verb, reason, outcome) => ({ workflow: 'WF3', action: `${verb} ${sid}`, reason, outcome });
@@ -70,6 +73,22 @@ function act(d, s, now = new Date()) {
         'Agent: moved +2 h, still inside its window. FYI, no answer needed.'].join('\n'),
       log: log('RESCHEDULE', `${d.reason}; routine, +2 h still inside its window`, `launch ${moved}, sheet RESCHEDULED, FYI sent`) };
   }
+  if (d.level === 'L1_REROUTE') {
+    const kept = String(a.new_cells || '').split(';').filter(Boolean);
+    const dropped = String((s && s.cells) || '').split(';').map((c) => c.trim()).filter((c) => c && !kept.includes(c));
+    const gone = dropped.join(', ') || 'the risky cells', to = kept.join(', ');
+    return { ...a,
+      sheet: { status: 'REROUTED', cells: kept.join(';'), decided_by: 'agent', note: `rerouted, dropped ${gone}: ${d.reason}` },
+      text: [head('🧭 REROUTED'), esc(d.reason), esc(`Agent: dropped ${gone} from the route; it flies ${to} at the planned time. FYI, no answer needed.`)].join('\n'),
+      log: log('REROUTE', `${d.reason}; ${(s && s.priority) || 'routine'} sortie, the rest of its route has no known jamming`,
+        `route now ${to} (dropped ${gone}), sheet REROUTED, FYI sent`) };
+  }
+  if (d.level === 'L3_AUTO_HOLD') {
+    return { ...a,
+      sheet: hold(`HOLD by the agent, routine, no slot left in its window: ${d.reason}`),
+      text: [head('✋ HOLD'), esc(d.reason), 'Agent: held it on its own, no slot left in its window. FYI, no answer needed. It never says safe.'].join('\n'),
+      log: log('HOLD', `${d.reason}; routine, no slot left in its window, so the agent holds it`, 'sheet HOLD by the agent, FYI sent') };
+  }
   if (d.level === 'L2_CANCEL') {
     return { ...a,
       sheet: { status: 'CANCELLED', launch_at: launch, decided_by: 'agent', note: `cancelled: ${d.reason}` },
@@ -78,12 +97,11 @@ function act(d, s, now = new Date()) {
   }
   if (d.level === 'L3_HOLD' || d.level === 'L4_SPOOF_HOLD') {
     const why = d.level === 'L4_SPOOF_HOLD' ? 'possible spoofing, always a human call'
-      : a.incident_id === null ? `launch in ${until(launch, now)}`
-        : s && s.priority === 'priority' ? 'priority sortie, a human decides' : 'routine, no slot left in its window';
+      : `priority sortie, a human decides${a.incident_id === null ? `; launch in ${until(launch, now)}` : ''}`;
     return { ...a,
       sheet: hold(`HOLD, awaiting duty officer: ${d.reason}`),
       text: cardText(a, d.reason),
-      cb: { keep: `k|${sid}|${a.id}`, launch: `l|${sid}|${a.id}`, false_alarm: `f|${sid}|${a.id}` },
+      cb: { keep: `k|${sid}|${a.id}`, launch: `l|${sid}|${a.id}`, cancel: `c|${sid}|${a.id}` },
       llm: briefingRequest(d.reason),
       log: log('HOLD', `${d.reason}; ${why}`, 'sheet HOLD, card sent, awaiting duty officer') };
   }
@@ -91,7 +109,7 @@ function act(d, s, now = new Date()) {
     return { ...a,
       sheet: hold(`HOLD (brake on incident ${a.batch}), awaiting duty officer: ${d.reason}`),
       log: log('HOLD', `brake: incident ${a.batch} touches more than 25% of the sorties in the next 12 h, `
-        + `so no cancels or reschedules; ${d.reason}`, `sheet HOLD, batch card for incident ${a.batch} sent, awaiting duty officer`) };
+        + `so no reroutes, cancels or reschedules; ${d.reason}`, `sheet HOLD, batch card for incident ${a.batch} sent, awaiting duty officer`) };
   }
   if (d.level === 'UNVERIFIED') {
     return { ...a,
@@ -103,7 +121,7 @@ function act(d, s, now = new Date()) {
     log: log('WATCH', `${d.reason}; launch in ${until(launch, now)}`, 'at risk, logged once; nothing changed (jamming often goes away before launch)') };
 }
 
-// batchCards(BRAKE items) -> one card per incident, with the two batch buttons (C7 bk/bf)
+// batchCards(BRAKE items) -> one card per incident, with the three batch buttons (C7 bk/bl/bc)
 function batchCards(items) {
   const groups = new Map();
   for (const a of items) {
@@ -115,7 +133,7 @@ function batchCards(items) {
     text: [`⛔ BRAKE · incident ${batch} · ${list.length} ${list.length === 1 ? 'sortie' : 'sorties'} held`, esc(list[0].reason),
       esc(list.map((a) => `${a.sortie_id} ${local(a.launch_at)}`).join(' · ')),
       'Agent: held all of them. Needs your call. It never says safe.'].join('\n'),
-    cb: { keep: `bk|${batch}`, false_alarm: `bf|${batch}` },
+    cb: { keep: `bk|${batch}`, launch: `bl|${batch}`, cancel: `bc|${batch}` },
   }));
 }
 

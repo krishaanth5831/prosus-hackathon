@@ -95,15 +95,20 @@ test('WF3 Gate export: one Switch branch per level group, WATCH log only, agent_
   const wf = load('wf3-gate.json');
   const rules = node(wf, 'Switch level').parameters.rules.values;
   assert.deepEqual(rules.map((r) => r.conditions.conditions.map((c) => c.rightValue)),
-    [['L1_RESCHEDULE', 'L2_CANCEL'], ['L3_HOLD', 'L4_SPOOF_HOLD'], ['BRAKE_HOLD'], ['UNVERIFIED']]);
-  assert.deepEqual([0, 1, 2, 3].map((o) => next(wf, 'Switch level', o)),
-    [['Update sheet', 'Telegram FYI'], ['HOLD in sheet', 'LLM briefing'], ['HOLD all in sheet', 'Batch cards'], ['Telegram UNVERIFIED']]);
+    [['L1_RESCHEDULE', 'L2_CANCEL'], ['L3_HOLD', 'L4_SPOOF_HOLD'], ['BRAKE_HOLD'], ['UNVERIFIED'], ['L1_REROUTE'], ['L3_AUTO_HOLD']]);
+  assert.deepEqual([0, 1, 2, 3, 4, 5].map((o) => next(wf, 'Switch level', o)),
+    [['Update sheet', 'Telegram FYI'], ['HOLD in sheet', 'LLM briefing'], ['HOLD all in sheet', 'Batch cards'], ['Telegram UNVERIFIED'],
+      ['Reroute in sheet', 'Telegram FYI'], ['HOLD in sheet', 'Telegram FYI']], 'what the agent does alone is a text; only L3/L4/BRAKE get a card');
   assert.deepEqual([next(wf, 'LLM briefing'), next(wf, 'Card'), next(wf, 'Batch cards')], [['Card'], ['Telegram card'], ['Telegram batch card']]);
   const buttons = (n) => node(wf, n).parameters.inlineKeyboard.rows[0].row.buttons.map((b) => [b.text, b.additionalFields.callback_data]);
-  assert.deepEqual(buttons('Telegram card'), [['Keep HOLD', '={{ $json.cb.keep }}'], ['Launch anyway', '={{ $json.cb.launch }}'],
-    ['False alarm', '={{ $json.cb.false_alarm }}']]);
-  assert.deepEqual(buttons('Telegram batch card'), [['Keep HOLD (all)', '={{ $json.cb.keep }}'], ['False alarm (all)', '={{ $json.cb.false_alarm }}']]);
+  assert.deepEqual(buttons('Telegram card'), [['Hold', '={{ $json.cb.keep }}'], ['Launch anyway', '={{ $json.cb.launch }}'],
+    ['Cancel', '={{ $json.cb.cancel }}']]);
+  assert.deepEqual(buttons('Telegram batch card'), [['Hold (all)', '={{ $json.cb.keep }}'], ['Launch anyway (all)', '={{ $json.cb.launch }}'],
+    ['Cancel (all)', '={{ $json.cb.cancel }}']]);
   assert.deepEqual(Object.keys(node(wf, 'Update sheet').parameters.columns.value), ['sortie_id', 'status', 'launch_at', 'decided_by', 'note']);
+  assert.deepEqual(Object.keys(node(wf, 'Reroute in sheet').parameters.columns.value), ['sortie_id', 'status', 'cells', 'decided_by', 'note'],
+    'a reroute writes the kept cells; the reschedule and cancel path is untouched');
+  assert.ok(!node(wf, 'Reroute in sheet').parameters.columns.schema.find((c) => c.id === 'cells').removed);
   for (const n of ['HOLD in sheet', 'HOLD all in sheet'])
     assert.deepEqual(Object.keys(node(wf, n).parameters.columns.value), ['sortie_id', 'status', 'decided_by', 'note'], `${n}: launch untouched`);
   const llm = node(wf, 'LLM briefing');
@@ -126,7 +131,14 @@ test('WF6 Respond export: the only Telegram Trigger, allowlist first, claim → 
   assert.ok(trigger.webhookId);
   assert.deepEqual([next(wf, 'Config'), next(wf, 'Allowlisted?', 0), next(wf, 'Allowlisted?', 1)],
     [['Allowlisted?'], ['Parse tap'], ['Refused line']]);
-  assert.deepEqual([next(wf, 'Parse tap'), next(wf, 'Claim'), next(wf, 'Outcome')], [['Claim'], ['Outcome'], ['Sheet rows', 'Log rows', 'Answer']]);
+  assert.deepEqual([next(wf, 'Parse tap'), next(wf, 'Claim'), next(wf, 'Outcome')], [['Claim', 'Log tap'], ['Outcome'], ['Sheet rows', 'Log rows', 'Answer']]);
+  const { TG_SQL, tapParams, editParams, refusedParams } = require('../console/telegramLog.js');
+  for (const [n, params] of [['Log tap', tapParams], ['Log edit', editParams], ['Log refused tap', refusedParams]]) {
+    const log = node(wf, n);
+    assert.deepEqual([log.parameters.query, log.parameters.options.queryReplacement, log.onError, next(wf, n)], [TG_SQL, params, 'continueRegularOutput', []],
+      `${n}: C14 telegram_log, and a failure there never stops an answer`);
+  }
+  assert.deepEqual([next(wf, 'Edit card'), node(wf, 'Log tap').position[1] < node(wf, 'Claim').position[1]], [['Log edit'], true]);
   const ys = ['Sheet rows', 'Log rows', 'Answer'].map((n) => node(wf, n).position[1]);
   assert.deepEqual([...ys].sort((a, b) => a - b), ys, 'v1 order: sheet, then log, then answer');
   assert.deepEqual([next(wf, 'Sheet rows'), next(wf, 'Log rows'), next(wf, 'Answer'), next(wf, 'Card edit')],
@@ -143,7 +155,7 @@ test('WF6 Respond export: the only Telegram Trigger, allowlist first, claim → 
   const refused = node(wf, 'Answer refused').parameters;
   assert.deepEqual([refused.operation, refused.additionalFields.show_alert], ['answerQuery', true]);
   assert.match(refused.additionalFields.text, /^Not authorised/);
-  assert.deepEqual(next(wf, 'Refused line'), ['Answer refused', 'Log refused']);
+  assert.deepEqual(next(wf, 'Refused line'), ['Answer refused', 'Log refused', 'Log refused tap']);
   assert.ok(node(wf, 'Answer refused').position[1] < node(wf, 'Log refused').position[1], 'answer, then log');
 });
 

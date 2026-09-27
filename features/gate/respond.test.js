@@ -7,7 +7,7 @@ const path = require('node:path');
 const { parseTap, outcome, refusedLine } = require('./respond');
 
 const updates = JSON.parse(fs.readFileSync(path.join(__dirname, '../../shared/contracts/fixtures/telegram-callback.sample.json'), 'utf8'));
-const [KEEP, LAUNCH, FALSE_ALARM, BATCH_KEEP, BATCH_FALSE] = updates;
+const [KEEP, LAUNCH, FALSE_ALARM, BATCH_KEEP, BATCH_FALSE, CANCEL, BATCH_LAUNCH, BATCH_CANCEL] = updates;
 const NOW = new Date('2026-09-26T21:41:00Z'); // 23:41 in Amsterdam
 const JAM = 'JAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row';
 const CARD = KEEP.callback_query.message.text;
@@ -15,13 +15,16 @@ const CARD = KEEP.callback_query.message.text;
 const claimed = (o) => ({ id: '42', sortie_id: 'T-001', level: 'L3_HOLD', incident_id: '41', batch: null, reason: JAM,
   human_answer: 'keep', cell_id: '54.5_20.5', new_threshold: null, closed_now: false, ...o });
 
-test('parseTap: the five C7 kinds, claim parameters never empty', () => {
-  assert.deepEqual(updates.map((u) => { const t = parseTap(u); return [t.kind, t.answer, t.batch, t.sortie_id, t.decision_id, t.incident_id]; }), [
-    ['k', 'keep', false, 'T-001', '42', null],
-    ['l', 'launch', false, 'T-001', '42', null],
-    ['f', 'false_alarm', false, 'T-001', '42', null],
-    ['bk', 'keep', true, null, null, '41'],
-    ['bf', 'false_alarm', true, null, null, '41'],
+test('parseTap: the eight C7 kinds (f and bf only on older cards), claim parameters never empty', () => {
+  assert.deepEqual(updates.map((u) => { const t = parseTap(u); return [t.kind, t.answer, t.batch, t.sortie_id, t.decision_id, t.incident_id, t.label]; }), [
+    ['k', 'keep', false, 'T-001', '42', null, 'Hold'],
+    ['l', 'launch', false, 'T-001', '42', null, 'Launch anyway'],
+    ['f', 'false_alarm', false, 'T-001', '42', null, 'False alarm'],
+    ['bk', 'keep', true, null, null, '41', 'Hold (all)'],
+    ['bf', 'false_alarm', true, null, null, '41', 'False alarm (all)'],
+    ['c', 'cancel', false, 'T-001', '42', null, 'Cancel'],
+    ['bl', 'launch', true, null, null, '41', 'Launch anyway (all)'],
+    ['bc', 'cancel', true, null, null, '41', 'Cancel (all)'],
   ]);
   const t = parseTap(KEEP);
   assert.deepEqual([t.valid, t.name, t.who, t.callback_id, t.chat_id, t.message_id, t.message_text],
@@ -43,10 +46,10 @@ test('parseTap: anything that is not C7 is invalid and claims nothing; names are
   assert.equal(named({ id: 1 }).who, 'human:officer');
 });
 
-test('Keep HOLD: sheet stays HOLD, decided_by the human, card keeps its text and loses its buttons', () => {
+test('Hold: sheet stays HOLD, decided_by the human, card keeps its text and loses its buttons', () => {
   const o = outcome(parseTap(KEEP), [claimed()], NOW);
   assert.deepEqual(o.sheet, [{ sortie_id: 'T-001', status: 'HOLD', decided_by: 'human:Duty', note: `HOLD kept by Duty at 21:41 UTC: ${JAM}` }]);
-  assert.deepEqual(o.log, [{ workflow: 'WF6', action: 'KEEP HOLD T-001', reason: `human:Duty tapped Keep HOLD: ${JAM}`,
+  assert.deepEqual(o.log, [{ workflow: 'WF6', action: 'KEEP HOLD T-001', reason: `human:Duty tapped Hold: ${JAM}`,
     outcome: 'sheet stays HOLD, decision #42 answered' }]);
   assert.equal(o.answer, 'Kept on HOLD: T-001');
   assert.equal(o.edit, `${CARD}\n\n✋ Kept on HOLD by Duty at 23:41.`);
@@ -60,7 +63,15 @@ test('Launch anyway: LAUNCH_APPROVED by a human, never by the agent', () => {
   assert.equal(o.edit, `${CARD}\n\n🚀 Launch approved by Duty at 23:41. The agent did not approve it.`);
 });
 
-test('False alarm: back to PLANNED, one extra line for the raised threshold and the closed incident', () => {
+test('Cancel: CANCELLED by a human, the incident and its threshold stay as they are', () => {
+  const o = outcome(parseTap(CANCEL), [claimed({ human_answer: 'cancel', new_threshold: null, closed_now: false })], NOW);
+  assert.deepEqual(o.sheet, [{ sortie_id: 'T-001', status: 'CANCELLED', decided_by: 'human:Duty', note: `cancelled by Duty at 21:41 UTC: ${JAM}` }]);
+  assert.deepEqual(o.log, [{ workflow: 'WF6', action: 'CANCEL T-001', reason: `human:Duty tapped Cancel: ${JAM}`, outcome: 'sheet CANCELLED by a human' }]);
+  assert.equal(o.answer, 'Cancelled: T-001');
+  assert.equal(o.edit, `${CARD}\n\n✖️ Cancelled by Duty at 23:41.`);
+});
+
+test('False alarm (older cards only): back to PLANNED, one extra line for the raised threshold and the closed incident', () => {
   const o = outcome(parseTap(FALSE_ALARM), [claimed({ human_answer: 'false_alarm', new_threshold: 0.35, closed_now: true })], NOW);
   assert.deepEqual(o.sheet, [{ sortie_id: 'T-001', status: 'PLANNED', decided_by: 'human:Duty', note: `false alarm (Duty, 21:41 UTC): ${JAM}` }]);
   assert.deepEqual(o.log.map((l) => l.action), ['MARK FALSE ALARM T-001', 'RAISE THRESHOLD 54.5_20.5']);
@@ -84,6 +95,12 @@ test('batch buttons: every held sortie of the incident at once, one threshold li
   assert.deepEqual(fa.sheet.map((s) => s.status), ['PLANNED', 'PLANNED', 'PLANNED', 'PLANNED']);
   assert.deepEqual(fa.log.filter((l) => l.action.startsWith('RAISE')).length, 1);
   assert.match(fa.edit, /↩️ False alarm by Duty at 23:41: 4 sorties back to PLANNED\. Cell 54\.5_20\.5 threshold now 0\.40, incident 41 closed\.$/);
+  const go = outcome(parseTap(BATCH_LAUNCH), rows('launch'), NOW);
+  assert.deepEqual([go.sheet.map((s) => s.status), go.answer], [['LAUNCH_APPROVED', 'LAUNCH_APPROVED', 'LAUNCH_APPROVED', 'LAUNCH_APPROVED'], 'Launch approved: 4 sorties']);
+  assert.equal(go.log[0].reason, `human:Duty tapped Launch anyway (all): ${JAM}`);
+  const stop = outcome(parseTap(BATCH_CANCEL), rows('cancel'), NOW);
+  assert.deepEqual([stop.sheet.map((s) => s.status), stop.answer], [['CANCELLED', 'CANCELLED', 'CANCELLED', 'CANCELLED'], 'Cancelled: 4 sorties']);
+  assert.match(stop.edit, /\n\n✖️ All 4 cancelled by Duty at 23:41\.$/);
 });
 
 test('already answered or unknown button: nothing changes, a toast only, the card is left to the tap that won', () => {

@@ -5,25 +5,31 @@
 const HOUR = 3600e3;
 const ACT_H = 2, WATCH_H = 12, UNVERIFIED_MIN = 60, BRAKE = 0.25, STEP_H = 2;
 
-// levelFor(sortie: C5 row, bad: cell_status row) -> {level, human, new_launch_at?}
-function levelFor(s, bad) {
+// levelFor(sortie: C5 row, bad: the cell that tripped it, route: its cells with their state, risky: cell -> bool)
+//   -> {level, human, new_launch_at?, new_cells?}
+// High risk goes to a human: possible spoofing, or a priority sortie. Everything else the agent does on its own, the
+// least disruptive first: reroute around the risky cells, reschedule +2 h (routine), cancel (low), HOLD.
+function levelFor(s, bad, route = [], risky = () => false) {
   if (bad.state === 'SPOOF') return { level: 'L4_SPOOF_HOLD', human: true };
   if (s.priority === 'priority') return { level: 'L3_HOLD', human: true };
+  const keep = route.filter((c) => !risky(c)).map((c) => c.cell_id);
+  if (keep.length && keep.length < route.length) return { level: 'L1_REROUTE', human: false, new_cells: keep.join(';') };
   if (s.priority === 'low') return { level: 'L2_CANCEL', human: false };
   const next = Date.parse(s.launch_at) + STEP_H * HOUR;
   if (next <= Date.parse(s.window_end))
     return { level: 'L1_RESCHEDULE', human: false, new_launch_at: new Date(next).toISOString() };
-  return { level: 'L3_HOLD', human: true };                       // routine, no slot left
+  return { level: 'L3_AUTO_HOLD', human: false };                  // routine, no slot left: the agent holds it
 }
 
 // sorties: C5 rows · cells: {cell_id: C4 row} from cell_status · done: decision keys already taken
 // recentlyJammed: cell_ids with an incident in the last 6 h
-// -> [{sortie_id, launch_at, key, incident_id, level, human, reason, new_launch_at?, batch?}] (C6)
+// -> [{sortie_id, launch_at, key, incident_id, level, human, reason, new_launch_at?, new_cells?, batch?}] (C6)
 function decide({ sorties, cells, now = new Date(), done = [], recentlyJammed = [] }) {
   const t = now.getTime(), seen = new Set(done), recent = new Set(recentlyJammed);
+  const risky = (c) => ['JAMMED', 'SPOOF'].includes(c.state) || (c.state === 'UNKNOWN' && recent.has(c.cell_id));
   const upcoming = sorties.filter((s) => {
     const dt = Date.parse(s.launch_at) - t;
-    return ['PLANNED', 'RESCHEDULED'].includes(s.status) && dt > 0 && dt <= WATCH_H * HOUR;
+    return ['PLANNED', 'RESCHEDULED', 'REROUTED'].includes(s.status) && dt > 0 && dt <= WATCH_H * HOUR;
   });
 
   const out = [];
@@ -38,7 +44,7 @@ function decide({ sorties, cells, now = new Date(), done = [], recentlyJammed = 
       const reason = `${bad.state} cell ${bad.cell_id} (${bad.severity}): ${bad.evidence}`;
       out.push(dt > ACT_H * HOUR
         ? { ...base, key: `${s.sortie_id}|${bad.incident_id}|watch`, incident_id: bad.incident_id, level: 'WATCH', human: false, reason }
-        : { ...base, key: `${s.sortie_id}|${bad.incident_id}|${s.launch_at}`, incident_id: bad.incident_id, ...levelFor(s, bad), reason });
+        : { ...base, key: `${s.sortie_id}|${bad.incident_id}|${s.launch_at}`, incident_id: bad.incident_id, ...levelFor(s, bad, route, risky), reason });
       continue;
     }
     const unknown = route.filter((c) => c.state === 'UNKNOWN');
@@ -46,19 +52,19 @@ function decide({ sorties, cells, now = new Date(), done = [], recentlyJammed = 
       const hot = unknown.find((c) => recent.has(c.cell_id));
       out.push({ ...base, key: `${s.sortie_id}|unknown|${s.launch_at}`, incident_id: null,
         ...(hot
-          ? { level: 'L3_HOLD', human: true, reason: `no sensor coverage in ${hot.cell_id}, which was jammed in the last 6 h` }
+          ? { ...levelFor(s, hot, route, risky), reason: `no sensor coverage in ${hot.cell_id}, which was jammed in the last 6 h` }
           : { level: 'UNVERIFIED', human: false, reason: `no sensor coverage in ${unknown.map((c) => c.cell_id).join(', ')}` }) });
     }
   }
 
-  // Blast-radius brake: one incident touching > 25% of the next 12 h → no cancels/reschedules, HOLD + one batch card
+  // Blast-radius brake: one incident touching > 25% of the next 12 h → no reroutes/cancels/reschedules, HOLD + one batch card
   const byInc = {};
   for (const a of out) if (a.incident_id) (byInc[a.incident_id] ??= []).push(a);
   for (const [id, list] of Object.entries(byInc))
     if (list.length / upcoming.length > BRAKE)
       for (const a of list)
         if (!['WATCH', 'L4_SPOOF_HOLD'].includes(a.level))
-          Object.assign(a, { level: 'BRAKE_HOLD', human: true, batch: id, new_launch_at: undefined });
+          Object.assign(a, { level: 'BRAKE_HOLD', human: true, batch: id, new_launch_at: undefined, new_cells: undefined });
 
   return out.filter((a) => !seen.has(a.key));
 }
