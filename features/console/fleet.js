@@ -20,7 +20,7 @@ const SPELL_COOLDOWN_MIN = 10;    // ... and that one at most every 10 min per c
 const FLYABLE = ['PLANNED', 'RESCHEDULED', 'REROUTED', 'LAUNCH_APPROVED'];
 const KEPT_DOWN = ['HOLD', 'CANCELLED'];
 const SOURCE = 'sim:border-patrol-mavlink';
-const POOL = Array.from({ length: 16 }, (_, i) => `BG-UAV-${String(i + 1).padStart(2, '0')}`);
+const POOL = Array.from({ length: 24 }, (_, i) => `BG-UAV-${String(i + 1).padStart(2, '0')}`);
 
 const cellId = (lat, lon) => `${(Math.floor(lat / 0.5) * 0.5).toFixed(1)}_${(Math.floor(lon / 0.5) * 0.5).toFixed(1)}`;
 const isoZ = (t) => new Date(t).toISOString().replace('.000Z', 'Z');
@@ -76,15 +76,16 @@ class Fleet {
   }
   // tick(now) -> snapshot for the console; call every 2 s
   tick(now = Date.now()) {
-    const up = airborne(this.sorties, now), ids = new Set(up.map((s) => s.sortie_id));
-    for (const [id, f] of this.flights) if (!ids.has(id)) { this.flush(f, 'landed', now); this.event(f, `LANDED ${f.drone_id}`, `sortie ${id}`, now); this.flights.delete(id); }
-    for (const s of up) if (!this.flights.has(s.sortie_id)) {
+    const key = (s) => `${s.sortie_id}|${s.launch_at}|${s.cellList.join(';')}`;   // a reused test id is another flight
+    const up = airborne(this.sorties, now), ids = new Set(up.map(key));
+    for (const [id, f] of this.flights) if (!ids.has(id)) { this.flush(f, 'landed', now); this.event(f, `LANDED ${f.drone_id}`, `sortie ${f.sortie_id}`, now); this.flights.delete(id); }
+    for (const s of up) if (!this.flights.has(key(s))) {
       const used = new Set([...this.flights.values()].map((f) => f.drone_id));
       const start = [...s.sortie_id].reduce((h, c) => h * 31 + c.charCodeAt(0), 7) % POOL.length;
       const drone = [...POOL.slice(start), ...POOL.slice(0, start)].find((d) => !used.has(d)) || `BG-UAV-X${this.flights.size}`;
       const f = { sortie_id: s.sortie_id, drone_id: drone, unit: s.unit, priority: s.priority, launch: Date.parse(s.launch_at),
         route: routeFor(s.cellList, s.sortie_id), dist: SPEED * this.speed * Math.max(0, now - Date.parse(s.launch_at)) / 1000, at: now, events: [], seg: null, env: 'NORMAL', spell: null, spells: new Map(), lastReport: null };
-      this.flights.set(s.sortie_id, f);
+      this.flights.set(key(s), f);
       this.event(f, `TAKEOFF ${drone}`, `sortie ${s.sortie_id} · ${s.priority} · ${s.cellList.join(', ')}`, now);
     }
     const drones = [];
@@ -105,6 +106,8 @@ class Fleet {
       else if (env === 'SPOOF') this.event(f, `GNSS SPOOF SUSPECTED ${f.drone_id}`, `entered ${cell}: confident fix but GNSS/INS gap ${g.gap.toFixed(0)} m → GNSS rejected, holding course on INS`, now);
       else this.event(f, `GNSS RESTORED ${f.drone_id}`, `in ${cell}: ${g.satellites_visible} sats, h_acc ${g.h_acc.toFixed(1)} m`, now);
       f.env = env;
+      if (f.seg && f.seg.samples.length) this.flush(f, 'GNSS changed', now);   // the leg so far as it was, if a report is due
+      f.seg = { cell, samples: [] };               // so a bad spell is reported on its own samples, not averaged with the good ones
     }
     // C12 samples, placed by the leg (planned cell) they were taken in, never by the GNSS position
     if (!f.seg || f.seg.cell !== cell) { if (f.seg) this.flush(f, 'left the cell', now); f.seg = { cell, samples: [] }; }

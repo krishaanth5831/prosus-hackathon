@@ -257,6 +257,30 @@ test('fleet: the speed switch (real time, 10x, 20x) keeps every drone where it i
   assert.ok(Math.abs(where.lat - b.lat) < 1e-5 && Math.abs(where.lon - b.lon) < 1e-5, 'the map computes the same position from dist');
 });
 
+test('fleet: a jammer that comes on mid-patrol is reported on its own samples, not averaged with the good ones before it', () => {
+  const sent = [];
+  const f = new Fleet({ post: (r) => { sent.push(r); return Promise.resolve(); }, rng: () => 0.3 });
+  const t0 = Date.parse('2026-09-27T10:00:00Z');
+  f.setSorties(boardRows([row('T-9', { launch_at: '2026-09-27T09:59:00Z', cells: '59.0_27.5' })], [], SYNC));
+  for (let i = 0; i < 100; i++) f.tick(t0 + i * 2000);           // 200 s of good GNSS in the cell
+  f.setEffect('59.0_27.5', 'jam');
+  for (let i = 100; i < 118; i++) f.tick(t0 + i * 2000);
+  const bad = sent.filter((r) => droneReport(r, t0 + 240e3).rows[0].verdict === 'JAMMED');
+  assert.equal(bad.length, 1, 'reported about 30 s after the jammer came on');
+  assert.ok(bad[0].samples.length <= 16, `${bad[0].samples.length} samples, all from the jammed spell`);
+});
+
+test('fleet: a test id reused by a newer plan with other cells is another flight', () => {
+  const f = new Fleet({ post: () => Promise.resolve(), rng: () => 0.3 });
+  const t0 = Date.parse('2026-09-27T10:00:00Z');
+  f.setSorties(boardRows([row('T-5', { launch_at: '2026-09-27T09:40:00Z', cells: '54.0_25.0' })], [], SYNC));
+  assert.equal(f.tick(t0).drones[0].cell, '54.0_25.0');
+  f.setSorties(boardRows([row('T-5', { launch_at: '2026-09-27T09:45:00Z', cells: '57.0_27.5' })], [], SYNC));
+  const snap = f.tick(t0 + 2000);
+  assert.deepEqual([snap.drones.length, snap.drones[0].cell], [1, '57.0_27.5'], 'it flies the new cells');
+  assert.ok(snap.events.some((e) => e.action.startsWith('LANDED') && e.detail === 'sortie T-5'));
+});
+
 test('demo plan: 60 fictional C5 test sorties on the eastern-flank borders, 10 in the air now, 50 over the next 11 h', () => {
   const now = new Date('2026-09-27T10:00:30Z'), rows = demoPlan(now);
   assert.equal(rows.length, 60);
