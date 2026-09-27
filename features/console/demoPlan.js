@@ -2,7 +2,7 @@
 // demoPlan(now) -> 60 fictional C5 sortie rows (T-301..T-360) along the real eastern-flank borders, for the ops
 // console's "Load demo plan" button (WF8 takes at most 60). Ten launched in the last 50 min, so the simulated fleet
 // flies ten drones at once; fifty launch over the next 11 h, one every 13 min (the gate checks them every cycle).
-// Test ids per C11, unit names say DEMO. Priorities 1 : 2 : 1 (priority : routine : low).
+// Test ids per C11, unit names say DEMO, the notes are the mission. Priorities 1 : 2 : 1 (priority : routine : low).
 // The story: a simulated jammer on Lazdijai 54.0_23.5 is felt by T-301's drone, and the gate then reroutes T-312
 // (text), asks the officer about priority T-313 (card) and reschedules T-314 (text). 54.0_23.5 is on 5 of the 50: no brake.
 const HOUR = 3600e3, MIN = 60e3;
@@ -40,15 +40,24 @@ const PRIORITY = ['routine', 'low', 'routine', 'priority'];
 const PLAN = [...AIRBORNE, ...Array.from({ length: SCHEDULED }, (_, i) => [FIRST + i * EVERY,
   ...(STORY[i] || [ROUND[i % ROUND.length], PRIORITY[i % PRIORITY.length], i % 3 === 0 ? 'first' : 'both'])])];
 const PICK = { both: (c) => c, first: (c) => c.slice(0, 1), second: (c) => c.slice(-1) };
+// the note column: what the patrol is for, as a unit would write it
+const TASKS = {
+  priority: ['Movement reported near the border line: find it and keep it in view', 'Support the ground patrol at the crossing point',
+    'Search for a missing person reported near the border', 'Cover the checkpoint during the evening vehicle surge'],
+  routine: ['Border patrol: fence line and tree line', 'Patrol the river crossing points', 'Sector sweep, report anything unusual',
+    'Patrol the forest roads that lead to the border', 'Watch the lake shore and the reed beds', 'Night-to-day handover patrol of the sector'],
+  low: ['Survey the new fence section', 'Camera and gimbal check after maintenance', 'Training flight for a new pilot', 'Mapping pass for the sector chart'],
+};
 const iso = (t) => new Date(t).toISOString().replace('.000Z', 'Z');
 
 function demoPlan(now = new Date()) {
   const t0 = Math.floor(now.getTime() / MIN) * MIN;
+  const used = { priority: 0, routine: 0, low: 0 };
   return PLAN.map(([m, a, priority, which], i) => {
     const launch = t0 + m * MIN, area = AREAS[a];
     return { sortie_id: `T-${301 + i}`, unit: area.unit, priority, launch_at: iso(launch),
       window_end: iso(launch + WINDOW_MIN[priority] * MIN), cells: PICK[which](area.cells).join(';'),
-      status: 'PLANNED', decided_by: '', note: 'DEMO sortie (fictional)' };
+      status: 'PLANNED', decided_by: '', note: TASKS[priority][used[priority]++ % TASKS[priority].length] };
   });
 }
 

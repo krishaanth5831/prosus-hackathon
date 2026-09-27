@@ -140,38 +140,43 @@ test('map region: the eastern flank from the design; every demo sortie and every
   for (const [lon, lat] of [...GEO.COAST.flat(), ...GEO.BORDERS.flatMap(([line]) => line)]) assert.ok(inside(lat, lon), `${lat},${lon}`);
 });
 
-test('fleet: routes stay inside their planned cells, both ways along a line and round a box', () => {
-  const line = routeFor(['54.0_23.0', '54.0_23.5']), box = routeFor(['59.0_27.5']);
-  assert.deepEqual([line.loop, box.loop, routeFor(['nonsense']).points.length], [false, true, 0]);
-  for (let d = 0; d < 200e3; d += 1500) {
-    const p = positionAt(line, d);
-    assert.ok(['54.0_23.0', '54.0_23.5'].includes(cellId(p.lat, p.lon)), `line at ${d} m`);
-    assert.equal(cellId(positionAt(box, d).lat, positionAt(box, d).lon), '59.0_27.5', `box at ${d} m`);
+test('route: real patrol paths (loop, figure-eight, sweep, border track), closed, curving, and never outside the planned cells', () => {
+  const { AREAS } = require('./demoPlan.js');
+  const patterns = new Set();
+  for (const cells of [...AREAS.map((a) => a.cells), ...AREAS.map((a) => a.cells.slice(0, 1))]) {
+    const [la0, lo0] = cells[0].split('_').map(Number), [la1, lo1] = cells.at(-1).split('_').map(Number);
+    const pin = cells.length === 2 && Math.abs(la0 - la1) === 0.5 && Math.abs(lo0 - lo1) === 0.5 ? [Math.max(la0, la1), Math.max(lo0, lo1)] : null;
+    for (const seed of ['T-301', 'T-302', 'T-313', 'T-340']) {
+      const r = routeFor(cells, seed), { len } = positionAt(r, 0), turns = new Set();
+      patterns.add(r.pattern);
+      assert.ok(r.loop && r.points.length >= 20, `${cells} ${seed}: ${r.points.length} points`);
+      for (let d = 0; d < len; d += 600) {
+        const p = positionAt(r, d);
+        turns.add(Math.round(p.hdg / 15) % 24);
+        if (pin && Math.hypot(p.lat - pin[0], p.lon - pin[1]) < 0.003) continue;   // two cells that touch only at this corner
+        assert.ok(cells.includes(cellId(p.lat, p.lon)), `${cells} ${seed} at ${d} m is in ${cellId(p.lat, p.lon)}`);
+      }
+      assert.ok(turns.size >= 10, `${cells} ${seed}: not a line or a box (${turns.size} headings)`);
+    }
   }
-  const L = 0.5 * 111320 * Math.cos(54.25 * Math.PI / 180);     // the line from 54.25,23.25 to 54.25,23.75
-  const out = positionAt(line, 10e3), back = positionAt(line, 2 * L - 10e3);
-  assert.ok(Math.abs(out.lat - back.lat) < 1e-6 && Math.abs(out.lon - back.lon) < 1e-6, 'the way back passes the same points');
-  assert.equal((out.hdg + 180) % 360, back.hdg);
-  assert.deepEqual([out.pass, out.back, back.pass, back.back], [1, false, 2, true]);
-  const lap2 = positionAt(box, positionAt(box, 0).len + 5e3);
-  assert.deepEqual([lap2.pass, lap2.back, Math.round(lap2.along)], [2, false, 5000], 'the box: lap after lap, never back');
+  assert.deepEqual([...patterns].sort(), ['border track', 'figure-eight', 'patrol loop', 'search sweep']);
+  assert.deepEqual(routeFor(['54.0_23.0'], 'T-1'), routeFor(['54.0_23.0'], 'T-1'), 'a sortie always flies the same path');
+  assert.notDeepEqual(routeFor(['54.0_23.0'], 'T-1').points, routeFor(['54.0_23.0'], 'T-2').points, 'another sortie flies another');
+  assert.deepEqual(routeFor(['54.0_23.0', '54.0_23.0', 'x'], 'T-1'), routeFor(['54.0_23.0'], 'T-1'), 'a cell named twice is one cell');
+  assert.deepEqual(routeFor(['nonsense']).points, []);
 });
 
-test('route: the flown part is this pass so far, from where it began to the drone', () => {
-  const line = routeFor(['54.0_23.0', '54.0_23.5']), box = routeFor(['59.0_27.5']);
-  const L = positionAt(line, 0).len, [a, b] = line.points;
-  assert.deepEqual(flownPath(line, 0), [a, a]);
-  const out = flownPath(line, 10e3);
-  assert.deepEqual([out.length, out[0]], [2, a], 'out: from the first cell centre');
-  assert.ok(Math.abs(out[1][1] - (a[1] + (b[1] - a[1]) * 10e3 / L)) < 1e-9);
-  const back = flownPath(line, L + 4e3);
-  assert.deepEqual([back.length, back[0]], [2, b], 'back: from the far end, the old pass is not drawn');
-  const edge = positionAt(box, 0).len / 4;                    // the box's first side, its long east-west one, is not a quarter
-  const lap = flownPath(box, 1.5 * edge), [p0, p1] = box.points;
-  assert.deepEqual(lap.slice(0, 2), [p0, p1], 'a lap: the corners passed so far, then the drone');
-  assert.deepEqual(lap.at(-1), (({ lat, lon }) => [lat, lon])(positionAt(box, 1.5 * edge)));
-  assert.equal(flownPath(box, positionAt(box, 0).len + 1).length, 2, 'a new lap starts from the first corner again');
-  assert.deepEqual(routeFor(['54.0_23.0', '54.0_23.0', 'x']), routeFor(['54.0_23.0']), 'a cell named twice is one cell');
+test('route: laps, and the flown part is this lap so far, from its first point to the drone', () => {
+  const r = routeFor(['59.0_27.5', '59.0_27.0'], 'T-9'), { len } = positionAt(r, 0), p0 = r.points[0];
+  assert.deepEqual(flownPath(r, 0), [p0, p0]);
+  for (const d of [3e3, len / 3, len * 0.9]) {
+    const p = positionAt(r, d), f = flownPath(r, d);
+    assert.deepEqual(f.slice(0, -1), [...r.points, p0].slice(0, p.leg + 1), 'the path points passed so far');
+    assert.deepEqual(f.at(-1), [p.lat, p.lon], 'then the drone');
+    assert.deepEqual([p.lap, Math.round(p.along)], [1, Math.round(d)]);
+  }
+  const next = positionAt(r, len + 5e3);
+  assert.deepEqual([next.lap, Math.round(next.along), flownPath(r, len + 1).length], [2, 5000, 2], 'a new lap starts from the first point again');
 });
 
 test('fleet: only sorties the sheet and the gate let fly take off; HOLD and CANCELLED stay down', () => {
@@ -248,7 +253,7 @@ test('fleet: the speed switch (real time, 10x, 20x) keeps every drone where it i
   for (const bad of [5, '10', 0, null]) assert.throws(() => f.setSpeed(bad), /speed must be 1, 10, 20/);
   assert.equal(f.speed, 1);
   assert.match(f.tick(t0 + 7000).events.find((e) => e.action.startsWith('SIMULATION SPEED')).action, /^SIMULATION SPEED REAL TIME$/);
-  const where = positionAt(routeFor(['54.0_23.0', '54.0_23.5']), b.dist);
+  const where = positionAt(routeFor(['54.0_23.0', '54.0_23.5'], 'T-8'), b.dist);   // the fleet seeds a path with the sortie id
   assert.ok(Math.abs(where.lat - b.lat) < 1e-5 && Math.abs(where.lon - b.lon) < 1e-5, 'the map computes the same position from dist');
 });
 
@@ -262,6 +267,7 @@ test('demo plan: 60 fictional C5 test sorties on the eastern-flank borders, 10 i
     assert.match(r.launch_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:00Z$/);
     assert.ok(Date.parse(r.window_end) > Date.parse(r.launch_at));
     assert.match(r.unit, /\(DEMO\)$/);
+    assert.ok(r.note.length > 10 && !/demo|fictional/i.test(r.note), `${r.sortie_id}: the note is the mission`);
     assert.equal(consoleRequest({ op: 'load', rows: [r] }).ok, true, `${r.sortie_id} passes WF8`);
   }
   assert.equal(rows.filter((r) => Date.parse(r.launch_at) <= now.getTime()).length, 10);

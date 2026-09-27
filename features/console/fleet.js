@@ -1,7 +1,8 @@
 // Owner: Krish (see CLAUDE.md)
 // Simulated border-patrol fleet for the ops console. ALL OF ITS DATA IS SIMULATED.
 // It plays the unit's ground station: when a sortie's launch time comes and the sheet (plus the gate's latest
-// decision) still lets it fly, a drone takes off and patrols the sortie's planned cells. HOLD and CANCELLED sorties
+// decision) still lets it fly, a drone takes off and patrols the sortie's planned cells on its own patrol path
+// (route.js: a loop, a figure-eight, a search sweep or a border track, inside those cells). HOLD and CANCELLED sorties
 // stay on the ground. Telemetry uses MAVLink GPS_RAW_INT / PX4 SensorGps field names. Like a real ground station,
 // the fleet sends C12 leg reports to WF7, so everything after that is the real pipeline.
 // GNSS degrades only in cells where the user placed a simulated jammer or spoofer (and, if mirrorReal is on,
@@ -82,7 +83,7 @@ class Fleet {
       const start = [...s.sortie_id].reduce((h, c) => h * 31 + c.charCodeAt(0), 7) % POOL.length;
       const drone = [...POOL.slice(start), ...POOL.slice(0, start)].find((d) => !used.has(d)) || `BG-UAV-X${this.flights.size}`;
       const f = { sortie_id: s.sortie_id, drone_id: drone, unit: s.unit, priority: s.priority, launch: Date.parse(s.launch_at),
-        route: routeFor(s.cellList), dist: SPEED * this.speed * Math.max(0, now - Date.parse(s.launch_at)) / 1000, at: now, events: [], seg: null, env: 'NORMAL', spell: null, spells: new Map(), lastReport: null };
+        route: routeFor(s.cellList, s.sortie_id), dist: SPEED * this.speed * Math.max(0, now - Date.parse(s.launch_at)) / 1000, at: now, events: [], seg: null, env: 'NORMAL', spell: null, spells: new Map(), lastReport: null };
       this.flights.set(s.sortie_id, f);
       this.event(f, `TAKEOFF ${drone}`, `sortie ${s.sortie_id} · ${s.priority} · ${s.cellList.join(', ')}`, now);
     }

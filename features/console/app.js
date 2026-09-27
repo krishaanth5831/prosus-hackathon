@@ -177,8 +177,8 @@
   }
 
   // drones, drawn like the design: an arrow on its heading, its id, its GNSS state, a faint trail. Between two updates
-  // (2 s apart) each one moves along its own route (route.js). The selected one shows its planned path, dotted, and what
-  // it has flown on this pass (this lap of its box, or this way along its line), solid.
+  // (2 s apart) each one moves along its own patrol path (route.js). The selected one shows its planned path, dotted, and
+  // what it has flown on this lap, solid.
   const marks = new Map(), path = { key: null, flown: [] };
   const droneHtml = () => '<div class="ring"></div><div class="bad"></div><div class="body"><svg viewBox="-7 -9 14 16" width="14" height="16"><path d="M0 -8 L6 6 L0 3 L-6 6 Z"/></svg></div><div class="tag"><span></span><em></em></div>';
   const TRAIL = { color: COL.air, weight: 1.2, opacity: 0.24 };
@@ -228,8 +228,8 @@
     const bar = document.getElementById('rpBar');
     if (!bar) return;
     const p = ROUTE.positionAt(route, dist), km = (m) => (m / 1000).toFixed(1);
-    const a = `${km(p.along)} of ${km(p.len)} km`, b = route.loop ? `lap ${p.pass}` : `pass ${p.pass} · ${p.back ? 'back' : 'out'}`;
-    const n = `${route.loop ? 'A box inside its cell, flown lap after lap' : `A line through ${route.points.length} cells, flown out and back`}. ${km(dist)} km since takeoff.`;
+    const a = `${km(p.along)} of ${km(p.len)} km`, b = `lap ${p.lap}`;
+    const n = `A ${route.pattern || 'patrol path'} inside its planned cells, flown lap after lap. ${km(dist)} km since takeoff.`;
     bar.style.width = `${(100 * p.along / p.len).toFixed(2)}%`;
     for (const [id, t] of [['#rpA', a], ['#rpP', b], ['#rpN', n]]) if ($(id).textContent !== t) $(id).textContent = t;
   }
@@ -311,7 +311,7 @@
     const b = $('#dbody');
     if (S.tab === 'tel') {
       if (full || !b.querySelector('#tg1')) {
-        const unit = d.route.loop ? 'lap' : 'pass';
+        const unit = 'lap';
         b.innerHTML = `<div class="lbl" style="margin-bottom:6px">Planned path</div>
           <div class="route"><div class="row"><span id="rpA">–</span><span id="rpP"></span></div><div class="bar"><i id="rpBar"></i></div>
             <div class="key"><span><i class="sw plan"></i>planned path</span><span><i class="sw flown"></i>flown this ${unit}</span></div><div class="note" id="rpN"></div></div>
