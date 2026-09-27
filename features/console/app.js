@@ -388,8 +388,8 @@
     $('#past').innerHTML = g.past.length ? `Launched earlier and no longer flying: ${g.past.map((r) => `${esc(r.sortie_id)} (${esc(r.status)}, ${tm(r.launch_at)})`).join(', ')}` : '';
     const c = S.confirm;
     $('#confirm').innerHTML = !c ? '' : `<div class="confirm"><p>${c === 'load'
-      ? 'Writes 16 fictional sorties (T-301 to T-316) into the Google Sheet and replaces older T-* test rows. Four launch right away and the simulated fleet flies them. The gate checks the other twelve every 5 minutes, so expect real Telegram messages in the ops group. To see the agent act: put a simulated jammer on Lazdijai 54.0_23.5 within 20 minutes; it reroutes T-305, asks about priority T-306 and reschedules T-307.'
-      : 'Removes every T-* test sortie from the Google Sheet. Other rows stay.'}</p><button class="btn warn" data-go="${c}">${c === 'load' ? 'Load 16 demo sorties' : 'Remove T-* sorties'}</button><button class="btn" data-go="cancel">Cancel</button></div>`;
+      ? 'Writes 60 fictional sorties (T-301 to T-360) into the Google Sheet and replaces older T-* test rows. Ten launched in the last 50 minutes, so the simulated fleet flies ten drones at once; fifty launch over the next 11 hours. The gate checks them every 5 minutes, so expect real Telegram messages in the ops group. To see the agent act: put a simulated jammer on Lazdijai 54.0_23.5 within 20 minutes; it reroutes T-312, asks about priority T-313 and reschedules T-314.'
+      : 'Removes every T-* test sortie from the Google Sheet. Other rows stay.'}</p><button class="btn warn" data-go="${c}">${c === 'load' ? 'Load 60 demo sorties' : 'Remove T-* sorties'}</button><button class="btn" data-go="cancel">Cancel</button></div>`;
   }
   function renderLog() {
     const L = S.log.filter((l) => S.filter === 'all' || window.logKind(l.workflow) === S.filter).slice(0, 150);

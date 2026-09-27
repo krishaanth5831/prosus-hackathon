@@ -241,10 +241,11 @@ test('fleet: the speed switch (real time, 10x, 20x) keeps every drone where it i
   assert.ok(Math.abs(where.lat - b.lat) < 1e-5 && Math.abs(where.lon - b.lon) < 1e-5, 'the map computes the same position from dist');
 });
 
-test('demo plan: 16 fictional C5 test sorties on the eastern-flank borders, 4 already launched', () => {
+test('demo plan: 60 fictional C5 test sorties on the eastern-flank borders, 10 in the air now, 50 over the next 11 h', () => {
   const now = new Date('2026-09-27T10:00:30Z'), rows = demoPlan(now);
-  assert.equal(rows.length, 16);
-  assert.deepEqual(rows.map((r) => r.sortie_id), Array.from({ length: 16 }, (_, i) => `T-${301 + i}`));
+  assert.equal(rows.length, 60);
+  assert.equal(consoleRequest({ op: 'load', rows }).ok, true, 'WF8 takes all 60 in one load');
+  assert.deepEqual(rows.map((r) => r.sortie_id), Array.from({ length: 60 }, (_, i) => `T-${301 + i}`));
   for (const r of rows) {
     assert.deepEqual(Object.keys(r), C5);
     assert.match(r.launch_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:00Z$/);
@@ -252,7 +253,12 @@ test('demo plan: 16 fictional C5 test sorties on the eastern-flank borders, 4 al
     assert.match(r.unit, /\(DEMO\)$/);
     assert.equal(consoleRequest({ op: 'load', rows: [r] }).ok, true, `${r.sortie_id} passes WF8`);
   }
-  assert.equal(rows.filter((r) => Date.parse(r.launch_at) <= now.getTime()).length, 4);
+  assert.equal(rows.filter((r) => Date.parse(r.launch_at) <= now.getTime()).length, 10);
+  const up = airborne(boardRows(rows.map((r) => ({ ...r })), [], SYNC), now.getTime());
+  assert.equal(up.length, 10, 'ten drones fly at once');
+  assert.equal(new Set(up.map((s) => s.unit)).size, 10, 'each over its own stretch of border');
+  const later = rows.filter((r) => Date.parse(r.launch_at) > now.getTime()).map((r) => Date.parse(r.launch_at));
+  assert.ok(later.length === 50 && Math.max(...later) - now.getTime() < 11 * 3600e3, 'fifty launch within the next 11 h');
   assert.deepEqual([...new Set(rows.map((r) => r.priority))].sort(), ['low', 'priority', 'routine']);
 });
 
@@ -261,8 +267,9 @@ test('demo plan: one simulated jammer on Lazdijai 54.0_23.5 gives a reroute and 
   const now = new Date('2026-09-27T10:00:00Z'), rows = demoPlan(new Date(now.getTime() - 10 * 60e3));   // the jammer 10 min after loading
   const cells = { '54.0_23.5': { cell_id: '54.0_23.5', state: 'JAMMED', incident_id: 90, severity: 'medium', evidence: 'SIMULATED drone BG-UAV-05: 20/40 degraded' } };
   const out = decide({ sorties: rows, cells, now }).filter((a) => a.incident_id === 90);
-  assert.deepEqual(out.map((a) => [a.sortie_id, a.level, a.human, a.new_cells]), [
-    ['T-305', 'L1_REROUTE', false, '54.0_23.0'], ['T-306', 'L3_HOLD', true, undefined], ['T-307', 'L1_RESCHEDULE', false, undefined]]);
+  assert.deepEqual(out.filter((a) => a.level !== 'WATCH').map((a) => [a.sortie_id, a.level, a.human, a.new_cells]), [
+    ['T-312', 'L1_REROUTE', false, '54.0_23.0'], ['T-313', 'L3_HOLD', true, undefined], ['T-314', 'L1_RESCHEDULE', false, undefined]]);
+  assert.deepEqual(out.filter((a) => a.level === 'WATCH').map((a) => a.sortie_id), ['T-342', 'T-358'], 'later ones are only watched');
   const fly = airborne(boardRows(rows.map((r) => ({ ...r })), [], SYNC), now.getTime()).map((s) => [s.sortie_id, s.cells]);
   assert.ok(fly.some(([id, c]) => id === 'T-301' && c.includes('54.0_23.5')), 'a drone is up over the jammed cell to feel it');
 });
