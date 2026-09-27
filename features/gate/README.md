@@ -1,9 +1,11 @@
 # features/gate: the sortie gate (Person B)
 
 Every cycle, **WF3 Gate** compares every upcoming sortie in the sheet with the current cell picture. On its own it only
-takes actions that lower risk: reschedule, cancel a low-priority sortie, HOLD. **WF6 Respond** takes the duty officer's
-answer whenever an action would raise risk. Decisions are rules only (`decide.js`, SQL). The LLM rephrases one line on
-a HOLD card and falls back to the template.
+takes actions that lower risk: reroute around the risky cells, reschedule, cancel a low-priority sortie, HOLD. Each is an
+FYI text in the ops group that says what it did and why. Only high risk (a priority sortie, possible spoofing, the brake)
+becomes a card that says why it needs a human and asks Hold, Launch anyway or Cancel; **WF6 Respond** takes that answer.
+Decisions are rules only (`decide.js`, SQL). The LLM rephrases the evidence line on a card and falls back to the template.
+Every Telegram call is logged in `telegram_log` (C14) for the ops console.
 
 | File | What |
 |---|---|
@@ -20,9 +22,12 @@ a HOLD card and falls back to the template.
 Start → Config → Read sorties → Cell status → Done keys → Recent incidents → decide → Decision rows
   → Insert decisions (on conflict (key) do nothing returning *) → Acted (only the rows the insert returned)
   → Switch level ─ L1 / L2      → Update sheet · Telegram FYI
-                 ├ L3 / L4      → HOLD in sheet · LLM briefing → Card → Telegram card [Keep HOLD] [Launch anyway] [False alarm]
-                 ├ BRAKE        → HOLD all in sheet · Batch cards → Telegram batch card [Keep HOLD (all)] [False alarm (all)]
-                 └ UNVERIFIED   → Telegram UNVERIFIED          (WATCH has no branch: log only)
+                 ├ L3 / L4      → HOLD in sheet · LLM briefing → Card → Telegram card [Hold] [Launch anyway] [Cancel]
+                 ├ BRAKE        → HOLD all in sheet · Batch cards → Telegram batch card [Hold (all)] [Launch anyway (all)] [Cancel (all)]
+                 ├ UNVERIFIED   → Telegram UNVERIFIED          (WATCH has no branch: log only)
+                 ├ REROUTE      → Reroute in sheet (status, cells) · Telegram FYI
+                 └ AUTO HOLD    → HOLD in sheet · Telegram FYI
+  every Telegram node → Telegram log (telegram_log, C14; a failure never stops the gate)
   → agent_log lines → Insert agent_log   (placed lowest on the canvas, so n8n v1 runs it after every branch)
 ```
 
@@ -33,10 +38,11 @@ Publish WF3 before WF2: this n8n will not publish a workflow whose Execute Workf
 
 ```
 Telegram Trigger (callback_query) → Config → Allowlisted?
-  yes → Parse tap → Claim (claim.sql) → Outcome → Sheet rows → Update sheet
+  yes → Parse tap → Log tap (telegram_log)
+                  → Claim (claim.sql) → Outcome → Sheet rows → Update sheet
                                               → Log rows → Insert agent_log
-                                              → Answer (answerCallbackQuery) → Card edit → Edit card (outcome added, buttons gone)
-  no  → Refused line → Answer refused ("Not authorised", alert) · Log refused
+                                              → Answer (answerCallbackQuery) → Card edit → Edit card (outcome added, buttons gone) → Log edit
+  no  → Refused line → Answer refused ("Not authorised", alert) · Log refused · Log refused tap (no name)
 ```
 
 Activating WF6 points the bot's webhook at n8n, so `getUpdates` stops working while it is active.

@@ -1,6 +1,6 @@
 # prosus-hackathon
 
-**AirGuard: an autonomous pre-launch sortie guard that uses aircraft overhead as GPS-jamming sensors and holds, reschedules or cancels drone sorties before they launch into jammed airspace. It never says "safe".**
+**AirGuard: an autonomous pre-launch sortie guard that uses aircraft overhead as GPS-jamming sensors and reroutes, reschedules, cancels or holds drone sorties before they launch into jammed airspace. It never says "safe".**
 
 Apify (collection) → n8n Cloud (all logic) → Supabase Postgres → Google Sheet (sortie plan) → Telegram (human gate) → Leaflet map on Vercel.
 What and why: `docs/prd.md` · how: `docs/plan.md` · contracts: `shared/contracts/CONTRACTS.md` · slices: `docs/TASKS.md` · rules for Claude Code: `CLAUDE.md`.
@@ -35,8 +35,8 @@ There is no green on the map, and no sortie status called "clear". A sortie with
  │ adsb-collector  (every 5 min) │  webhook RUN.FAILED    ──► n8n WF4
  └───────────────────────────────┘
  ┌─ n8n Cloud ──────────────────────────────────────────────────────────┐
- │ WF1 Collect ─► WF2 Detect ─► WF3 Gate ──► Telegram card (3 buttons)  │
- │                                              │                       │
+ │ WF1 Collect ─► WF2 Detect ─► WF3 Gate ──► Telegram: FYI text or card │
+ │                                              │   (Hold/Launch/Cancel) │
  │ WF6 Respond ◄── Telegram Trigger (button tap)┘                       │
  │ WF4 Heal (Error Trigger + Apify failure + stale watchdog)            │
  │ WF5 Report (07:00)                                                   │
@@ -44,7 +44,8 @@ There is no green on the map, and no sortie status called "clear". A sortie with
             ▼                               ▼
    Supabase Postgres                  Google Sheet "AirGuard Sorties"
    observations, incidents,           (the unit's sortie plan)
-   decisions, agent_log, baselines
+   decisions, agent_log, baselines,
+   telegram_log (every message)
             ▲ read-only (RLS, anon key), live (Realtime)
    Leaflet map on Vercel · Ops console (npm run console, localhost)
 ```
@@ -55,19 +56,23 @@ There is no green on the map, and no sortie status called "clear". A sortie with
 
 ### Autonomy and the human gate
 
-The agent **acts** on sorties launching within 2 h and **watches** sorties launching 2–12 h out.
+The agent **acts** on sorties launching within 2 h and **watches** sorties launching 2–12 h out. A risky cell is a JAMMED or SPOOF cell, or an UNKNOWN cell that was jammed in the last 6 h.
 
-| Situation | Level | Agent does on its own | Human? |
+| Situation | Level | What happens | Human? |
 |---|---|---|---|
-| Route crosses a bad cell, launch 2–12 h away | WATCH | Logs "at risk" once, changes nothing (jamming often goes away) | No |
-| Routine sortie, JAMMED cell, launch +2 h still fits its window | **L1 Reschedule** | Moves the launch +2 h, notifies | No |
-| Low-priority sortie, JAMMED cell | **L2 Cancel** | Cancels, notifies | No |
-| Priority sortie · routine with no slot left · UNKNOWN cell jammed in the last 6 h | **L3 HOLD** | HOLD + Telegram card | **Yes** |
+| Route crosses a risky cell, launch 2–12 h away | WATCH | Logs "at risk" once, changes nothing (jamming often goes away) | No |
+| Routine or low sortie, some cells risky, others not | **L1 Reroute** | Drops the risky cells, flies the rest on time; FYI text | No |
+| Routine sortie, every cell risky, +2 h still fits its window | **L1 Reschedule** | Moves the launch +2 h; FYI text | No |
+| Low-priority sortie, every cell risky | **L2 Cancel** | Cancels; FYI text | No |
+| Routine sortie, every cell risky, no slot left | **L3 HOLD by the agent** | HOLD; FYI text | No |
+| Priority sortie, a risky cell on its route | **L3 HOLD** | HOLD + Telegram card | **Yes** |
 | Any SPOOF cell on the route | **L4 Spoof HOLD** | HOLD + card flagged as spoofing | **Always** |
 | UNKNOWN cell, launch < 1 h, no recent jamming | UNVERIFIED | Notifies "no sensor coverage", changes nothing | Officer decides |
 | One incident hits > 25% of upcoming sorties | **BRAKE** | HOLDs all of them (reversible), sends **one** batch card | **Yes** |
 
-**Authority limits:** the agent may always make a sortie safer and may never make one riskier. It never lifts a HOLD. It never marks anything safe. It never routes through a JAMMED, SPOOF or UNKNOWN cell. It changes one sortie at a time, and the brake stops mass changes. Only allow-listed Telegram users can answer a card: **Keep HOLD**, **Launch anyway** or **False alarm**. A false alarm raises that cell's threshold by 0.05.
+**Telegram:** everything the agent does on its own is a plain FYI text in the ops group that says what it did and **why** (e.g. "Why: its only cell is at risk, so there is no reroute. It is routine and +2 h still ends inside its window…"). Only the high-risk cases (a priority sortie, possible spoofing, the brake) get a card, which says **why it needs a human** ("Why you: …") and asks **Hold**, **Launch anyway** or **Cancel**. Cards sent before this change still carry **False alarm**, and that button still works.
+
+**Authority limits:** the agent may always make a sortie safer and may never make one riskier. It never lifts a HOLD and never approves a launch. It never marks anything safe. It never adds a cell to a route: a reroute only drops the risky cells and keeps the rest of the planned route (a kept cell with no sensor coverage still gets the UNVERIFIED notice). It changes one sortie at a time, and the brake stops mass changes. Only allow-listed Telegram users can answer a card.
 
 **Self-healing:** source failover inside the actor, an Apify-failure webhook, and a watchdog that raises a stale-data alarm after 15 min (the map goes grey). Every node error lands in `agent_log` and on Telegram. At 07:00 a morning report lists incidents, what the agent did, the resolution rate and any HOLDs still waiting for an officer.
 
@@ -83,15 +88,15 @@ The agent **acts** on sorties launching within 2 h and **watches** sorties launc
 `npm run console`, then open http://localhost:8787 (it listens on 127.0.0.1 only). The switch in the header flies the simulated drones in real time, 10× or 20× (`npm run console:demo` starts at 10×). Only the drones speed up: sorties launch at their sheet times and the pipeline keeps its 5-minute cycle. The unit's operations screen, live:
 
 - **Live airspace:** the eastern flank drawn from `features/console/geo.js`, locked to that region (you can zoom in, not out). Cells come from `cell_status`, aircraft from the last collect, drones from the simulated fleet. Click a drone for its planned patrol path (dotted) and what it has flown on this pass (solid cyan), its telemetry, what its autopilot decided and what AirGuard decided. Click a cell for its evidence, or to place a simulated jammer or spoofer that only the simulated drones feel.
-- **Fleet, Sorties, Agent log, Pipeline:** the drones in the air and those kept on the ground; the Google Sheet (through its Supabase mirror) with the gate's latest decisions and the Telegram cards waiting for the officer; every `agent_log` line; the live state of Apify, n8n WF1–WF8, Supabase Realtime, the sheet mirror and the Telegram bot.
+- **Fleet, Sorties, Agent log, Telegram, Pipeline:** the drones in the air and those kept on the ground; the Google Sheet (through its Supabase mirror) with the gate's latest decisions and the Telegram cards waiting for the officer; every `agent_log` line; a live copy of the Telegram ops group (every text and card AirGuard sends, each officer's tap and the answered card, from `telegram_log`); the live state of Apify, n8n WF1–WF8, Supabase Realtime, the sheet mirror and the Telegram bot.
 - It updates by itself: Supabase Realtime for the data, server-sent events every 2 s for the fleet. Times are CEST; hover one for UTC.
-- **Load demo plan** writes 16 fictional sorties (T-301…T-316) into the sheet through WF8. Four fly at once; the gate checks the rest every cycle, so real Telegram messages follow. **Remove demo sorties** takes every T-* row out again.
+- **Load demo plan** writes 16 fictional sorties (T-301…T-316) into the sheet through WF8. Four fly at once; the gate checks the rest every cycle, so real Telegram messages follow. To see every kind of message, put a simulated jammer on Lazdijai `54.0_23.5` within 20 minutes of loading: T-301's drone reports it, and the next cycle reroutes T-305 (text), asks about priority T-306 (card) and reschedules T-307 (text). **Remove demo sorties** takes every T-* row out again.
 - `.env` needs the Supabase URL and anon key (the only values the browser gets), `N8N_*`, `APIFY_TOKEN`, `TELEGRAM_BOT_TOKEN`, `DRONE_INTAKE_TOKEN` and `CONSOLE_TOKEN`. Options: `--no-fleet`, `--fleet-speed=N`, `--mirror-real`.
 
 ### Setup
 
 1. `cp .env.example .env` and fill in the values (Supabase, n8n API, Apify, Telegram, Google Sheet). Never commit `.env`.
-2. Supabase: run `db/migrations/001_init.sql`, `002_drone_reports.sql` and `003_console.sql`, in that order.
+2. Supabase: run `db/migrations/001_init.sql`, `002_drone_reports.sql`, `003_console.sql` and `004_telegram.sql`, in that order.
 3. Apify: push `features/collect/actor`, add a */5 schedule and the two webhooks (`airguard-apify`, `airguard-apify-failed`).
 4. n8n: create the credentials and import WF1–WF6 in the order given in [`docs/n8n-import.md`](docs/n8n-import.md), then WF7 (`features/collect/wf7-telemetry.json`, credential `AirGuard Drone Intake`) and WF8 (`features/console/wf8-console.json`, credential `AirGuard Console`).
 5. Sorties: `node features/gate/gen-sorties.js`, then import the CSV into the sheet **"AirGuard Sorties"**, tab `sorties`.

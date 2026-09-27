@@ -3,12 +3,14 @@
 // text and the agent_log line. Pure functions, pasted into the WF3 Code nodes.
 // What the agent does on its own (reroute, reschedule, cancel, HOLD) is a plain FYI text in the ops group. Only a high
 // risk HOLD (possible spoofing, a priority sortie, the brake) is a card that asks the duty officer: Hold, Launch anyway
-// or Cancel.
+// or Cancel. Every message has the same shape: what happened, the evidence, "Why:" the agent decided that on its own
+// (or "Why you:" it needs a human), and what the agent did.
 // Spec: docs/plan.md §6 WF3 + "Card text", contracts C5–C8.
 // Telegram text is HTML (parse_mode HTML, because every cell id has a "_") in local time; sheet and log stay UTC.
 
 const TZ = 'Europe/Amsterdam';
-const HOLD_FOOTER = 'Agent: held. Needs your call. It never says safe.';
+const HOLD_FOOTER = 'Agent: held it. Your call: Hold, Launch anyway or Cancel. It never says safe.';
+const ALONE = 'That lowers the risk, so the agent acted alone.';
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const local = (t) => new Date(t).toLocaleTimeString('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
 const utc = (t) => new Date(t).toISOString().slice(11, 16);
@@ -16,6 +18,15 @@ const isoZ = (t) => new Date(t).toISOString().replace('.000Z', 'Z');
 const until = (t, now) => {
   const min = Math.round((Date.parse(t) - now.getTime()) / 60e3);
   return min < 120 ? `${min} min` : `${Math.round(min / 6) / 10} h`;
+};
+const cellsOf = (s) => String((s && s.cells) || '').split(';').map((c) => c.trim()).filter(Boolean);
+const cellIn = (reason) => (String(reason).match(/-?\d+\.\d_-?\d+\.\d/) || ['a cell on its route'])[0];   // the cell the decision is about
+const noReroute = (s) => `${cellsOf(s).length > 1 ? 'every cell on its route is' : 'its only cell is'} at risk, so there is no reroute`;
+// why a card needs a human (the "Why you:" line)
+const WHY_YOU = {
+  L3_HOLD: () => 'it is a priority sortie. Whether a priority mission waits, flies anyway or is cancelled is an operational call, so the agent holds it and asks instead of acting alone.',
+  L4_SPOOF_HOLD: (a) => `positions in ${cellIn(a.reason)} may be spoofed. A spoofed drone trusts a confident but wrong fix and can drift or cross the border without noticing, so spoofing always goes to a human, whatever the priority.`,
+  BRAKE_HOLD: () => 'one incident touches more than a quarter of the sorties in the next 12 h. Rerouting, moving or cancelling that many at once is too big a call for the agent, so it held them all.',
 };
 
 // decisionRow(C6 decision) -> decisions row. WF3 inserts it before acting; the unique key makes each action happen once.
@@ -46,11 +57,12 @@ function briefing(res, template) {
     && cells.every((c) => text.includes(c)) && numbers(text) === numbers(template) ? text : template;
 }
 
-// cardText(held sortie, evidence line) -> the HOLD card (plan "Card text"). The buttons are C7 callback data in `cb`.
+// cardText(held sortie, evidence line) -> the HOLD card (plan "Card text"): what, the evidence (the LLM may rephrase that
+// line), why it needs a human, the three answers. The buttons are C7 callback data in `cb`.
 function cardText(a, line) {
   const spoof = a.level === 'L4_SPOOF_HOLD';
   return [esc(`⛔ HOLD${spoof ? ' · SPOOFING' : ''} · ${a.sortie_id} · ${a.unit} · launch ${local(a.launch_at)}`), esc(line),
-    spoof ? 'Agent: held, positions there may be spoofed. Needs your call. It never says safe.' : HOLD_FOOTER].join('\n');
+    esc(`Why you: ${(WHY_YOU[a.level] || WHY_YOU.L3_HOLD)(a)}`), HOLD_FOOTER].join('\n');
 }
 
 // act(inserted decisions row, its C5 sheet row, now) -> what WF3 does for it:
@@ -70,29 +82,39 @@ function act(d, s, now = new Date()) {
     return { ...a,
       sheet: { status: 'RESCHEDULED', launch_at: a.new_launch_at, decided_by: 'agent', note: `moved +2 h ${moved}: ${d.reason}` },
       text: [head('🔁 RESCHEDULED', `${local(launch)} → ${local(a.new_launch_at)}`), esc(d.reason),
-        'Agent: moved +2 h, still inside its window. FYI, no answer needed.'].join('\n'),
+        esc(`Why: ${noReroute(s)}. It is routine and +2 h still ends inside its window${s && s.window_end ? ` (until ${local(s.window_end)})` : ''}, `
+          + `so a later launch is the smallest change; the gate checks it again before then. ${ALONE}`),
+        'Agent: moved it +2 h. FYI, no answer needed.'].join('\n'),
       log: log('RESCHEDULE', `${d.reason}; routine, +2 h still inside its window`, `launch ${moved}, sheet RESCHEDULED, FYI sent`) };
   }
   if (d.level === 'L1_REROUTE') {
     const kept = String(a.new_cells || '').split(';').filter(Boolean);
     const dropped = String((s && s.cells) || '').split(';').map((c) => c.trim()).filter((c) => c && !kept.includes(c));
     const gone = dropped.join(', ') || 'the risky cells', to = kept.join(', ');
+    const why = `${gone} ${dropped.length > 1 ? 'are' : 'is'} at risk, but ${to} ${kept.length > 1 ? 'have' : 'has'} no known jamming. `
+      + `Flying only ${kept.length > 1 ? 'those cells' : 'that cell'} keeps the sortie on time and out of the risky ${dropped.length > 1 ? 'cells' : 'cell'}. ${ALONE}`;
     return { ...a,
       sheet: { status: 'REROUTED', cells: kept.join(';'), decided_by: 'agent', note: `rerouted, dropped ${gone}: ${d.reason}` },
-      text: [head('🧭 REROUTED'), esc(d.reason), esc(`Agent: dropped ${gone} from the route; it flies ${to} at the planned time. FYI, no answer needed.`)].join('\n'),
+      text: [head('🧭 REROUTED'), esc(d.reason), esc(`Why: ${why}`),
+        esc(`Agent: dropped ${gone}; it flies ${to} at the planned time. FYI, no answer needed.`)].join('\n'),
       log: log('REROUTE', `${d.reason}; ${(s && s.priority) || 'routine'} sortie, the rest of its route has no known jamming`,
         `route now ${to} (dropped ${gone}), sheet REROUTED, FYI sent`) };
   }
   if (d.level === 'L3_AUTO_HOLD') {
     return { ...a,
       sheet: hold(`HOLD by the agent, routine, no slot left in its window: ${d.reason}`),
-      text: [head('✋ HOLD'), esc(d.reason), 'Agent: held it on its own, no slot left in its window. FYI, no answer needed. It never says safe.'].join('\n'),
+      text: [head('✋ HOLD'), esc(d.reason),
+        esc(`Why: ${noReroute(s)}, and +2 h would end after its window${s && s.window_end ? ` closes at ${local(s.window_end)}` : ''}, so it cannot be moved. `
+          + `A routine sortie is held rather than cancelled. ${ALONE}`),
+        'Agent: held it. FYI, no answer needed. It never says safe.'].join('\n'),
       log: log('HOLD', `${d.reason}; routine, no slot left in its window, so the agent holds it`, 'sheet HOLD by the agent, FYI sent') };
   }
   if (d.level === 'L2_CANCEL') {
     return { ...a,
       sheet: { status: 'CANCELLED', launch_at: launch, decided_by: 'agent', note: `cancelled: ${d.reason}` },
-      text: [head('✖️ CANCELLED'), esc(d.reason), 'Agent: cancelled this low-priority sortie. FYI, no answer needed.'].join('\n'),
+      text: [head('✖️ CANCELLED'), esc(d.reason),
+        esc(`Why: ${noReroute(s)}, and it is low priority: a low-priority sortie is cancelled rather than moved or held. ${ALONE}`),
+        'Agent: cancelled it. FYI, no answer needed.'].join('\n'),
       log: log('CANCEL', `${d.reason}; low priority`, 'sheet CANCELLED, FYI sent') };
   }
   if (d.level === 'L3_HOLD' || d.level === 'L4_SPOOF_HOLD') {
@@ -114,7 +136,8 @@ function act(d, s, now = new Date()) {
   if (d.level === 'UNVERIFIED') {
     return { ...a,
       text: [head('❔ UNVERIFIED'), esc(d.reason),
-        'Agent: no aircraft there to check GPS, so nothing is verified. Nothing changed; the launch is your call.'].join('\n'),
+        'Why you: too few aircraft and no recent drone report there to check GPS, so AirGuard cannot see jamming there, and it cannot say there is none.',
+        'Agent: nothing changed; the launch is your call.'].join('\n'),
       log: log('FLAG UNVERIFIED', `${d.reason}; launch in ${until(launch, now)}`, 'nothing changed, officer notified') };
   }
   return { ...a, // WATCH: at risk, logged once, nothing changes
@@ -131,8 +154,8 @@ function batchCards(items) {
   return [...groups].map(([batch, list]) => ({
     batch,
     text: [`⛔ BRAKE · incident ${batch} · ${list.length} ${list.length === 1 ? 'sortie' : 'sorties'} held`, esc(list[0].reason),
-      esc(list.map((a) => `${a.sortie_id} ${local(a.launch_at)}`).join(' · ')),
-      'Agent: held all of them. Needs your call. It never says safe.'].join('\n'),
+      esc(list.map((a) => `${a.sortie_id} ${local(a.launch_at)}`).join(' · ')), esc(`Why you: ${WHY_YOU.BRAKE_HOLD()}`),
+      'Agent: held all of them. Your call for all of them: Hold, Launch anyway or Cancel. It never says safe.'].join('\n'),
     cb: { keep: `bk|${batch}`, launch: `bl|${batch}`, cancel: `bc|${batch}` },
   }));
 }

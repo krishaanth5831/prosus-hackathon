@@ -54,14 +54,20 @@ sortie_id | unit | priority | launch_at | window_end | cells | status | decided_
 
 - `priority ∈ priority | routine | low`
 - `cells` joined by `;` (e.g. `56.5_21.0;56.5_21.5`)
-- `status ∈ PLANNED | RESCHEDULED | CANCELLED | HOLD | LAUNCH_APPROVED`
+- `status ∈ PLANNED | RESCHEDULED | REROUTED | CANCELLED | HOLD | LAUNCH_APPROVED`
+- A reroute (C6 `L1_REROUTE`) rewrites `cells` to the cells it keeps; it never adds one.
 - **There is never a "clear" or "safe" status.**
 
 Fixture: `sorties.sample.csv`.
 
 ## C6 Decision levels
 
-Levels: `WATCH L1_RESCHEDULE L2_CANCEL L3_HOLD L4_SPOOF_HOLD BRAKE_HOLD UNVERIFIED`.
+Levels: `WATCH L1_REROUTE L1_RESCHEDULE L2_CANCEL L3_AUTO_HOLD L3_HOLD L4_SPOOF_HOLD BRAKE_HOLD UNVERIFIED`.
+
+- The agent acts alone and sends an FYI text (with a "Why:" line): `L1_REROUTE`, `L1_RESCHEDULE`, `L2_CANCEL`, `L3_AUTO_HOLD`.
+- High risk, a card asks the duty officer (with a "Why you:" line): `L3_HOLD` (priority sortie), `L4_SPOOF_HOLD`, `BRAKE_HOLD`.
+- Order for a routine or low sortie with a risky cell (JAMMED, SPOOF, or UNKNOWN jammed in the last 6 h): reroute if some
+  cells are not risky, else reschedule +2 h (routine, slot left), cancel (low) or HOLD (routine, no slot left).
 
 `decisions.key`:
 - `"<sortie>|<incident>|<launch_at>"` (acted on)
@@ -71,20 +77,26 @@ Levels: `WATCH L1_RESCHEDULE L2_CANCEL L3_HOLD L4_SPOOF_HOLD BRAKE_HOLD UNVERIFI
 `decide()` returns:
 
 ```
-[{sortie_id, launch_at, key, incident_id, level, human, reason, new_launch_at?, batch?}]
+[{sortie_id, launch_at, key, incident_id, level, human, reason, new_launch_at?, new_cells?, batch?}]
 ```
+
+`new_cells` (a reroute: the kept cells joined by `;`) is stored in `decisions.new_cells` (`db/migrations/004`).
 
 ## C7 Telegram callback_data
 
 At most **64 bytes**.
 
-| callback_data | Meaning |
+| callback_data | Button |
 |---|---|
-| `k\|<sortie>\|<decision_id>` | Keep HOLD |
+| `k\|<sortie>\|<decision_id>` | Hold |
 | `l\|<sortie>\|<decision_id>` | Launch anyway |
-| `f\|<sortie>\|<decision_id>` | False alarm |
-| `bk\|<incident_id>` | Batch: keep HOLD |
-| `bf\|<incident_id>` | Batch: false alarm |
+| `c\|<sortie>\|<decision_id>` | Cancel |
+| `bk\|<incident_id>` | Batch: Hold (all) |
+| `bl\|<incident_id>` | Batch: Launch anyway (all) |
+| `bc\|<incident_id>` | Batch: Cancel (all) |
+| `f\|<sortie>\|<decision_id>`, `bf\|<incident_id>` | False alarm: only on cards sent before 2026-09-27, still answered |
+
+`decisions.human_answer ∈ keep | launch | cancel | false_alarm`.
 
 Only allowlisted user IDs (`TELEGRAM_ALLOWED_USER_IDS`) may answer.
 
@@ -147,3 +159,18 @@ The ops console (`features/console`) reads Supabase with the anon key, live thro
 - Realtime tables: `agent_log`, `incidents`, `decisions`, `drone_reports`, `observations`, `sorties`, `sheet_sync`. `decisions` is readable by anon.
 - The console shows a sortie's status as the mirror row plus any decision made after `sheet_sync.synced_at`, mapped as `act.js` and `respond.js` write the sheet.
 - WF8 writes and removes only test sorties (`T-*`, C11).
+
+## C14 Telegram log
+
+`telegram_log` (`db/migrations/004`): everything AirGuard sends to the Telegram ops group and every tap on a card, for
+the ops console's Telegram view. n8n writes a row right after each Telegram call (a "Telegram log" node in WF2–WF5; WF6:
+"Log tap", "Log edit", "Log refused tap"), with the query and parameters in `features/console/telegramLog.js`.
+
+```
+{id, ts, workflow, kind: message | edit | tap, message_id, text, buttons, who}
+```
+
+- `message`: `text` as the group shows it, `buttons` the card's button labels row by row (`[["Hold","Launch anyway","Cancel"]]`) or null.
+- `edit`: the new text of the message with that `message_id` (an answered card: the answer added, the buttons gone).
+- `tap`: `text` is the button label, `who` is `human:<first name>`, or `not on the allowlist` (no name).
+- Never a chat id or a user id. Anon can read it, like `agent_log`; realtime is on.

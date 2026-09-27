@@ -454,7 +454,7 @@
     return `<div class="tgb ${kind}" data-id="${esc(m.id)}"><div class="av">AG</div><div class="bub"><div class="who">AirGuard<span>${esc(m.workflow)}</span></div>`
       + `<div class="txt">${esc(body)}${outcome ? `<span class="out">${esc(outcome)}</span>` : ''}</div>`
       + (m.buttons ? `${m.buttons.map((row) => `<div class="keys">${row.map((b) => `<span>${esc(b)}</span>`).join('')}</div>`).join('')}<div class="flag">WAITING FOR THE DUTY OFFICER</div>` : '')
-      + `<div class="meta">${m.edited ? 'answered · ' : ''}${tm(m.ts)}</div></div></div>`;
+      + `<div class="meta">${tm(m.ts)}${m.edited ? ` · answered ${tm(m.edited)}` : ''}</div></div></div>`;
   }
   function tgTap(m) {
     if (m.who === 'not on the allowlist') return `<div class="tg-sys">A Telegram account that is not on the allowlist tapped a button. Refused, nothing changed. ${tm(m.ts)}</div>`;

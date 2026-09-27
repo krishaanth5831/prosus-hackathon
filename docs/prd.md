@@ -98,16 +98,18 @@ Sorties are checked every cycle. The agent **acts** on sorties launching within 
 | Level | When | Agent does | Human |
 |---|---|---|---|
 | WATCH | Route crosses a bad cell, launch is 2–12 h away | Logs "at risk" once | No |
-| **L1 Reschedule** | Routine sortie, JAMMED cell, launch +2 h still fits its window | Moves the launch +2 h, notifies | No |
-| **L2 Cancel** | Low-priority sortie, JAMMED cell | Cancels, notifies | No |
-| **L3 HOLD** | Priority sortie, or a routine one with no slot left, or an UNKNOWN cell that was jammed in the last 6 h | HOLD + Telegram card | **Yes** |
+| **L1 Reroute** | Routine or low sortie, some of its cells risky (JAMMED, SPOOF, or UNKNOWN jammed in the last 6 h), others not | Drops the risky cells, flies the rest on time, texts why | No |
+| **L1 Reschedule** | Routine sortie, every cell risky, launch +2 h still fits its window | Moves the launch +2 h, texts why | No |
+| **L2 Cancel** | Low-priority sortie, every cell risky | Cancels, texts why | No |
+| **L3 HOLD by the agent** | Routine sortie, every cell risky, no slot left | HOLD, texts why | No |
+| **L3 HOLD** | Priority sortie with a risky cell | HOLD + Telegram card that says why it needs a human | **Yes** |
 | **L4 Spoof HOLD** | Any SPOOF cell on the route | HOLD + card, flagged as spoofing | **Always** |
 | UNVERIFIED | Route has an UNKNOWN cell, launch < 1 h, no recent jamming | Notifies "no sensor coverage", changes nothing | Officer decides |
 | **BRAKE** | One incident hits > 25% of upcoming sorties | HOLDs all of them (reversible), sends **one** batch card | **Yes** |
 
 **Authority limits (hard rules):**
 1. The agent never lifts a HOLD and never marks anything safe.
-2. It never proposes a route through JAMMED, SPOOF or UNKNOWN cells.
+2. It never adds a cell to a route. A reroute only drops the risky cells (JAMMED, SPOOF, or UNKNOWN jammed in the last 6 h) and keeps the rest of the planned route; a kept cell with no coverage still gets the UNVERIFIED notice.
 3. Cancelling and rescheduling happen only one sortie at a time. The brake stops mass changes.
 4. Only allow-listed Telegram users can answer a card.
 5. The LLM writes briefings only. Every decision comes from rules and can be explained line by line.
@@ -126,7 +128,7 @@ Sorties are checked every cycle. The agent **acts** on sorties launching within 
 | F2 | Binning aircraft into 0.5° cells → `observations` | Must | Aircraft without NIC/NACp are not sensors |
 | F3 | JAMMED / MAY-LIFT / close rules → `incidents`, one live incident per cell | Must | SQL, idempotent |
 | F4 | Per-cycle sortie gate: levels WATCH/L1/L2/L3/UNVERIFIED + brake, deduplicated | Must | Pure JS function, unit-tested |
-| F5 | Telegram card with 3 buttons (Keep HOLD / Launch anyway / False alarm) that updates the sortie | Must | Inline keyboard + Telegram Trigger |
+| F5 | Telegram card with 3 buttons (Hold / Launch anyway / Cancel) that updates the sortie, only for high risk (priority, spoofing, brake); every autonomous action is an FYI text; every message says why | Must | Inline keyboard + Telegram Trigger. Changed 2026-09-27: was Keep HOLD / Launch anyway / False alarm, and routine sorties with no slot went to a card |
 | F6 | Plain-English `agent_log` line for every decision: what, why, outcome | Must | The key judge artifact |
 | F7 | Self-healing: source failover, Apify-failure webhook, stale-data watchdog | Must | ≥ 1 real failover overnight |
 | F8 | 48 demo sorties for a fictional border squadron, placed in cells that have real traffic, labelled DEMO | Must | Generated from observed cells |
@@ -134,9 +136,9 @@ Sorties are checked every cycle. The agent **acts** on sorties launching within 
 | F10 | Leaflet map: red (jammed), purple (spoof), grey (unknown), outline only for no known issue. **No green.** | Should | Read-only via Supabase RLS |
 | F11 | Spoof detection (level L4) | Should | Enable after checking the real altitude-gap spread |
 | F12 | Second Apify source: official GNSS-interference NOTAMs fused into confidence | Should | Only if a working source is verified |
-| F13 | False-alarm tap raises the cell threshold (+0.05, max 0.6) | Could | |
+| F13 | False-alarm tap raises the cell threshold (+0.05, max 0.6) | Could | Only on cards sent before 2026-09-27: new cards ask Hold / Launch anyway / Cancel |
 | F14 | Loss investigator: GNSS picture for a given time and place | Could | One SQL query + Telegram command |
-| F15 | Reroute proposal around bad cells, human approves | Could | Proposal only, never automatic |
+| F15 | Reroute around bad cells | Should | Automatic since 2026-09-27 (L1_REROUTE): drops risky cells only, never adds one; an FYI text says why |
 | F16 | Drone GNSS reports (C12) from the unit's ground station as a second sensor for cells without aircraft; WF7 intake, fused into incidents and `cell_status` | Should | Demo data is simulated border-patrol MAVLink, labelled SIMULATED. Placed by planned leg, never by the drone's GPS. Spec: `docs/drone-telemetry.md` |
 
 ### Non-functional requirements

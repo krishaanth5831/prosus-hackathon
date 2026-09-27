@@ -187,7 +187,7 @@ n8n connects with the Postgres credential: the Supabase pooler on port 6543, dat
 
 **Sheet `AirGuard Sorties`, one row per sortie:**
 `sortie_id | unit | priority (priority/routine/low) | launch_at (UTC ISO) | window_end (UTC ISO) | cells ("56.5_21.0;56.5_21.5") | status | decided_by | note`
-Status is one of `PLANNED`, `RESCHEDULED`, `CANCELLED`, `HOLD` or `LAUNCH_APPROVED`. **There is no "clear" or "safe" status.**
+Status is one of `PLANNED`, `RESCHEDULED`, `REROUTED` (since 2026-09-27, C6 `L1_REROUTE`), `CANCELLED`, `HOLD` or `LAUNCH_APPROVED`. **There is no "clear" or "safe" status.**
 
 ## 5. Components
 

@@ -25,7 +25,7 @@
           "type": "private"
         },
         "date": 1790457000,
-        "text": "⛔ HOLD · T-001 · 3rd Border Drone Sqn (DEMO, fictional) · launch 23:35\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held. Needs your call. It never says safe."
+        "text": "⛔ HOLD · T-001 · 3rd Border Drone Sqn (DEMO, fictional) · launch 23:35\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nWhy you: it is a priority sortie. Whether a priority mission waits, flies anyway or is cancelled is an operational call, so the agent holds it and asks instead of acting alone.\nAgent: held it. Your call: Hold, Launch anyway or Cancel. It never says safe."
       },
       "chat_instance": "-3215468795123456789",
       "data": "k|T-001|42"
@@ -57,7 +57,7 @@
           "type": "private"
         },
         "date": 1790457000,
-        "text": "⛔ HOLD · T-001 · 3rd Border Drone Sqn (DEMO, fictional) · launch 23:35\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held. Needs your call. It never says safe."
+        "text": "⛔ HOLD · T-001 · 3rd Border Drone Sqn (DEMO, fictional) · launch 23:35\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nWhy you: it is a priority sortie. Whether a priority mission waits, flies anyway or is cancelled is an operational call, so the agent holds it and asks instead of acting alone.\nAgent: held it. Your call: Hold, Launch anyway or Cancel. It never says safe."
       },
       "chat_instance": "-3215468795123456789",
       "data": "l|T-001|42"
@@ -89,7 +89,7 @@
           "type": "private"
         },
         "date": 1790457000,
-        "text": "⛔ HOLD · T-001 · 3rd Border Drone Sqn (DEMO, fictional) · launch 23:35\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held. Needs your call. It never says safe."
+        "text": "⛔ HOLD · T-001 · 3rd Border Drone Sqn (DEMO, fictional) · launch 23:35\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nWhy you: it is a priority sortie. Whether a priority mission waits, flies anyway or is cancelled is an operational call, so the agent holds it and asks instead of acting alone.\nAgent: held it. Your call: Hold, Launch anyway or Cancel. It never says safe."
       },
       "chat_instance": "-3215468795123456789",
       "data": "f|T-001|42"
@@ -121,7 +121,7 @@
           "type": "private"
         },
         "date": 1790457000,
-        "text": "⛔ BRAKE · incident 41 · 4 sorties held\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held all of them. Needs your call. It never says safe."
+        "text": "⛔ BRAKE · incident 41 · 4 sorties held\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nWhy you: one incident touches more than a quarter of the sorties in the next 12 h. Rerouting, moving or cancelling that many at once is too big a call for the agent, so it held them all.\nAgent: held all of them. Your call for all of them: Hold, Launch anyway or Cancel. It never says safe."
       },
       "chat_instance": "-3215468795123456789",
       "data": "bk|41"
@@ -153,7 +153,7 @@
           "type": "private"
         },
         "date": 1790457000,
-        "text": "⛔ BRAKE · incident 41 · 4 sorties held\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held all of them. Needs your call. It never says safe."
+        "text": "⛔ BRAKE · incident 41 · 4 sorties held\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nWhy you: one incident touches more than a quarter of the sorties in the next 12 h. Rerouting, moving or cancelling that many at once is too big a call for the agent, so it held them all.\nAgent: held all of them. Your call for all of them: Hold, Launch anyway or Cancel. It never says safe."
       },
       "chat_instance": "-3215468795123456789",
       "data": "bf|41"
@@ -185,7 +185,7 @@
           "type": "private"
         },
         "date": 1790457000,
-        "text": "⛔ HOLD · T-001 · 3rd Border Drone Sqn (DEMO, fictional) · launch 23:35\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held. Needs your call. It never says safe."
+        "text": "⛔ HOLD · T-001 · 3rd Border Drone Sqn (DEMO, fictional) · launch 23:35\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nWhy you: it is a priority sortie. Whether a priority mission waits, flies anyway or is cancelled is an operational call, so the agent holds it and asks instead of acting alone.\nAgent: held it. Your call: Hold, Launch anyway or Cancel. It never says safe."
       },
       "chat_instance": "-3215468795123456789",
       "data": "c|T-001|42"
@@ -217,7 +217,7 @@
           "type": "private"
         },
         "date": 1790457000,
-        "text": "⛔ BRAKE · incident 41 · 4 sorties held\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held all of them. Needs your call. It never says safe."
+        "text": "⛔ BRAKE · incident 41 · 4 sorties held\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nWhy you: one incident touches more than a quarter of the sorties in the next 12 h. Rerouting, moving or cancelling that many at once is too big a call for the agent, so it held them all.\nAgent: held all of them. Your call for all of them: Hold, Launch anyway or Cancel. It never says safe."
       },
       "chat_instance": "-3215468795123456789",
       "data": "bl|41"
@@ -249,7 +249,7 @@
           "type": "private"
         },
         "date": 1790457000,
-        "text": "⛔ BRAKE · incident 41 · 4 sorties held\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nAgent: held all of them. Needs your call. It never says safe."
+        "text": "⛔ BRAKE · incident 41 · 4 sorties held\nJAMMED cell 54.5_20.5 (high): 5/8 aircraft degraded, 2 checks in a row\nWhy you: one incident touches more than a quarter of the sorties in the next 12 h. Rerouting, moving or cancelling that many at once is too big a call for the agent, so it held them all.\nAgent: held all of them. Your call for all of them: Hold, Launch anyway or Cancel. It never says safe."
       },
       "chat_instance": "-3215468795123456789",
       "data": "bc|41"
