@@ -33,6 +33,7 @@
     return m === 0 ? 'now' : m > 0 ? `in ${s}` : `${s} ago`;
   };
   const isTest = (id) => /^89\.5_/.test(String(id || ''));
+  const local = (text, at) => window.localTimes(text, at || new Date().toISOString(), TZ);   // "HH:MM UTC" in stored text → CEST
   const cellOf = (lat, lon) => `${(Math.floor(lat / 0.5) * 0.5).toFixed(1)}_${(Math.floor(lon / 0.5) * 0.5).toFixed(1)}`;
   const bounds = (id) => { const [la, lo] = id.split('_').map(Number); return [[la, lo], [la + 0.5, lo + 0.5]]; };
   const debounce = (fn, wait) => { let t = null; return () => { clearTimeout(t); t = setTimeout(fn, wait); }; };
@@ -242,7 +243,7 @@
     if (d) map.panTo([d.lat, d.lon], { animate: true });
   }
   const logHtml = (l, isNew) => `<div class="ev k-${window.logKind(l.workflow)}${isNew ? ' new' : ''}"><div><span class="a">${esc(l.action)}</span><span class="m">${tm(l.ts, true)} · ${esc(l.workflow)}</span></div>`
-    + `<div class="r">${esc(l.reason)}</div>${l.outcome ? `<div class="o">→ ${esc(l.outcome)}</div>` : ''}</div>`;
+    + `<div class="r">${esc(local(l.reason, l.ts))}</div>${l.outcome ? `<div class="o">→ ${esc(local(l.outcome, l.ts))}</div>` : ''}</div>`;
 
   function renderChips() {
     const n = { JAMMED: 0, SPOOF: 0, UNKNOWN: 0, NO_KNOWN_ISSUE: 0 };
@@ -257,7 +258,7 @@
   }
   function renderTicker() {
     const l = S.log[0];
-    if (l) $('#ticker').innerHTML = `<span class="t">${tm(l.ts, true)}</span><span class="a">${esc(l.action)}</span><span class="r">${esc(l.reason)}</span>`;
+    if (l) $('#ticker').innerHTML = `<span class="t">${tm(l.ts, true)}</span><span class="a">${esc(l.action)}</span><span class="r">${esc(local(l.reason, l.ts))}</span>`;
   }
 
   function renderDrawer(full) {
@@ -334,14 +335,14 @@
     $('#sortiesSub').innerHTML = `${R.length} sorties in the Google Sheet "AirGuard Sorties". The mirror synced ${S.sync ? `${tm(S.sync.synced_at)} (${rel(S.sync.synced_at)}) by ${esc(S.sync.by)}` : 'never'}; decisions made since then show at once.`;
     $('#demoBar').hidden = !CFG.demo;
     $('#pending').innerHTML = g.officer.map((r) => `<div class="tg"><div class="lbl" style="margin-bottom:6px">Telegram · waiting for the duty officer${bot ? ` · <a href="https://t.me/${esc(bot)}" target="_blank" rel="noopener">@${esc(bot)}</a>` : ''}</div>`
-      + `<div class="msg">⛔ ${esc(LEVEL[r.level] || 'HOLD')} · ${esc(r.sortie_id)} · ${esc(r.unit)} · launch ${HM.format(new Date(ms(r.launch_at)))}\n${esc(r.reason)}\nAgent: held. Needs your call. It never says safe.</div>`
+      + `<div class="msg">⛔ ${esc(LEVEL[r.level] || 'HOLD')} · ${esc(r.sortie_id)} · ${esc(r.unit)} · launch ${HM.format(new Date(ms(r.launch_at)))}\n${esc(local(r.reason, r.decision && r.decision.ts))}\nAgent: held. Needs your call. It never says safe.</div>`
       + `<div class="keys"><span>Keep HOLD</span><span>Launch anyway</span><span>False alarm</span></div><div class="note">Answer on the phone; this page updates the moment WF6 records it.</div></div>`).join('');
     const lv = (l) => (['L3_HOLD', 'L4_SPOOF_HOLD', 'BRAKE_HOLD'].includes(l) ? 'hold' : ['L1_RESCHEDULE', 'L2_CANCEL'].includes(l) ? 'move' : 'quiet');
     const card = (r) => `<div class="card${r.pending ? ' need' : ''}"><div class="top"><span>${esc(r.sortie_id)}</span><span class="pri">${esc(r.priority)}</span></div>`
       + `<div class="lbl" style="margin-top:3px;text-transform:none;letter-spacing:0">${esc(r.unit)}</div>`
       + `<div class="lbl">launch ${tm(r.launch_at)} · ${rel(r.launch_at)}</div><div class="lbl">${r.cellList.map(esc).join(' · ')}</div>`
       + `<div class="lv ${r.level ? lv(r.level) : 'quiet'}">${r.level ? LEVEL[r.level] : esc(r.status)}${r.decided_by && r.decided_by.startsWith('human:') ? ` · ${esc(r.decided_by.slice(6))}` : ''}</div>`
-      + (r.reason ? `<div class="why">${esc(r.reason)}</div>` : '') + '</div>';
+      + (r.reason ? `<div class="why">${esc(local(r.reason, (r.decision && r.decision.ts) || r.changed_at))}</div>` : '') + '</div>';
     const cols = [['officer', 'NEEDS THE OFFICER'], ['flight', 'IN FLIGHT'], ['hold', 'ON HOLD'], ['changed', 'MOVED OR CANCELLED'], ['upcoming', 'UPCOMING']];
     $('#board').innerHTML = cols.map(([k, t]) => `<div class="col"><h3>${t}<span style="color:var(--muted)">${g[k].length}</span></h3>${g[k].map(card).join('') || '<div class="note">none</div>'}</div>`).join('');
     $('#past').innerHTML = g.past.length ? `Launched earlier and no longer flying: ${g.past.map((r) => `${esc(r.sortie_id)} (${esc(r.status)}, ${tm(r.launch_at)})`).join(', ')}` : '';
@@ -483,7 +484,7 @@
     if (table === 'agent_log' && row) {
       S.log.unshift(row); S.log.length = Math.min(S.log.length, 300); S.newLogId = row.id;
       const kind = window.logKind(row.workflow);
-      toast(kind === 'pipeline' && /SWITCH|ALERT|REJECT|FLAG NO DATA/.test(row.action) ? 'bad' : kind, row.action, row.reason);
+      toast(kind === 'pipeline' && /SWITCH|ALERT|REJECT|FLAG NO DATA/.test(row.action) ? 'bad' : kind, row.action, local(row.reason, row.ts));
       $('#ticker').animate([{ opacity: 0.3 }, { opacity: 1 }], 500);
     }
     if (table === 'incidents') { const r = row || old; if (row && row.status !== 'closed') S.incidents.set(row.id, row); else S.incidents.delete(r.id); soonCells(); }
@@ -549,6 +550,7 @@
   function startFleet() {
     if (!CFG.fleet) return;
     $('#simBadge').hidden = false;
+    if (CFG.speed > 1) $('#simBadge').textContent = `DRONES SIMULATED · ${CFG.speed}× SPEED`;
     const es = new EventSource('/api/fleet/stream');
     es.onmessage = (m) => { S.fleet = JSON.parse(m.data); onFleet(); };
   }

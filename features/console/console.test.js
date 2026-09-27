@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { boardRows, column, logKind } = require('./board.js');
+const { boardRows, column, logKind, localTimes } = require('./board.js');
 const { n8nSummary, apifySummary, telegramSummary, aircraftView, nextCollect } = require('./status.js');
 const GEO = require('./geo.js');
 const { Fleet, routeFor, positionAt, gnss, airborne, keptDown, cellId, SOURCE } = require('./fleet.js');
@@ -48,6 +48,15 @@ test('board: columns and log kinds', () => {
   const fly = new Set(['T-2']);
   assert.deepEqual([held, flying, moved, upcoming, past].map((r) => column(r, now, fly)), ['officer', 'flight', 'changed', 'upcoming', 'past']);
   assert.deepEqual(['WF2', 'WF3', 'WF6', 'WF7', 'WF8', 'WF1', 'WF4'].map(logKind), ['agent', 'agent', 'officer', 'drone', 'console', 'pipeline', 'pipeline']);
+});
+
+test('CEST on screen: "HH:MM UTC" inside stored text is shown in CEST, on the right day', () => {
+  const tz = 'Europe/Amsterdam';
+  assert.equal(localTimes('launch 01:00→03:00 UTC, sheet RESCHEDULED', '2026-09-27T00:01:01Z', tz), 'launch 03:00→05:00 CEST, sheet RESCHEDULED');
+  assert.equal(localTimes('approved by K at 22:55 UTC despite: x', '2026-09-26T22:55:46Z', tz), 'approved by K at 00:55 CEST despite: x');
+  assert.equal(localTimes('moved +2 h 23:30→01:30 UTC', '2026-09-26T23:31:00Z', tz), 'moved +2 h 01:30→03:30 CEST');
+  assert.equal(localTimes('held at 12:00 UTC', '2026-12-01T12:00:00Z', tz), 'held at 13:00 CET', 'winter time says CET');
+  assert.equal(localTimes('2026-09-27T01:00:00Z and 10:00 local stay', '2026-09-27T00:00:00Z', tz), '2026-09-27T01:00:00Z and 10:00 local stay');
 });
 
 test('status: n8n, Apify and Telegram summaries carry names, states and times only', () => {
@@ -142,6 +151,20 @@ test('fleet: a simulated jammer degrades the drone, the leg report is C12 and na
   assert.equal(f.environment('54.0_23.0'), 'JAMMED', 'only with --mirror-real');
   const g = gnss('SPOOF', () => 0.1);
   assert.deepEqual([g.fix_type, g.spoofing_state >= 2, g.gap > 100], [3, true, true], 'a spoofer hands out a confident fix');
+});
+
+test('fleet: a fast demo fleet still sends few reports (each is an n8n execution); ground speed stays the cruise speed', () => {
+  const sent = [];
+  const f = new Fleet({ post: (r) => { sent.push(r); return Promise.resolve(); }, speed: 10, rng: () => 0.3 });
+  const t0 = Date.parse('2026-09-27T10:00:00Z');
+  f.setSorties(boardRows([row('T-8', { launch_at: '2026-09-27T09:59:00Z' })], [], SYNC));   // a line across 54.0_23.0 and 54.0_23.5
+  f.setEffect('54.0_23.5', 'jam');
+  let snap;
+  for (let t = t0; t < t0 + 30 * 60e3; t += 2000) snap = f.tick(t);
+  const early = sent.filter((r) => r.legs[0].cell_id === '54.0_23.5');
+  assert.ok(sent.length >= 3 && sent.length <= 9, `${sent.length} reports in 30 min at 10x`);
+  assert.ok(early.length >= 1, 'the jammed cell is reported');
+  assert.ok(snap.drones[0].spd > 20 && snap.drones[0].spd < 30, 'cruise speed, not cruise x the demo factor');
 });
 
 test('demo plan: 16 fictional C5 test sorties on the eastern-flank borders, 4 already launched', () => {

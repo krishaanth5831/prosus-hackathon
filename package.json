@@ -7,6 +7,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "console": "node features/console/server.js"
+    "console": "node features/console/server.js",
+    "console:demo": "node features/console/server.js --fleet-speed=10"
   }
 }
