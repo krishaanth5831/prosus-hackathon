@@ -379,7 +379,7 @@
     if (k === 'db') {
       const inc = [...S.incidents.values()].filter((i) => SHOW_TEST || !isTest(i.cell_id)).length;
       return [ok(S.rt === 'SUBSCRIBED', S.rt === 'SUBSCRIBED' ? 'realtime connected' : `realtime ${S.rt.toLowerCase()}`),
-        `<span><b>${S.obsHour ?? '–'}</b> observations in the last hour</span>`, `<span><b>${inc}</b> open incidents</span>`];
+        `<span><b>${S.obsHour ?? '–'}</b> observations in the last hour</span>`, `<span><b>${inc}</b> open incident${inc === 1 ? '' : 's'}</span>`];
     }
     if (k === 'sheet') return S.sync ? [ok(true, `mirror synced ${rel(S.sync.synced_at)}`), `<span><b>${S.sync.n_rows}</b> rows · by ${esc(S.sync.by)}</span>`] : ['not synced yet'];
     const n = st.n8n;

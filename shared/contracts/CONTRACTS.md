@@ -92,18 +92,18 @@ Fixture: `telegram-callback.sample.json`.
 
 ## C8 agent_log
 
-- `workflow ∈ WF1..WF7`
+- `workflow ∈ WF1..WF8`
 - `action` = UPPERCASE verb + object (`"HOLD S-017"`)
 - `reason` = plain English + evidence (`"JAMMED 54.5_20.5 high: 9/14 aircraft degraded, 2 checks in a row"`)
 - `outcome`
 
 ## C9 n8n
 
-- Workflow names: `AirGuard WF1 Collect`, `AirGuard WF2 Detect`, `AirGuard WF3 Gate`, `AirGuard WF4 Heal`, `AirGuard WF5 Report`, `AirGuard WF6 Respond`, `AirGuard WF7 Telemetry`.
-- Webhook paths: `airguard-apify` (WF1), `airguard-apify-failed` (WF4), `airguard-drone` (WF7, header `X-AirGuard-Token` required).
+- Workflow names: `AirGuard WF1 Collect`, `AirGuard WF2 Detect`, `AirGuard WF3 Gate`, `AirGuard WF4 Heal`, `AirGuard WF5 Report`, `AirGuard WF6 Respond`, `AirGuard WF7 Telemetry`, `AirGuard WF8 Console`.
+- Webhook paths: `airguard-apify` (WF1), `airguard-apify-failed` (WF4), `airguard-drone` (WF7) and `airguard-console` (WF8), both with the header `X-AirGuard-Token`.
 - WF2 and WF3 start with an Execute Workflow Trigger named **"Start"**.
 - The first node after every trigger is a Set node **"Config"** with the non-secret config (chat id, allowlist, sheet id).
-- Secrets only in credentials `AirGuard Postgres`, `AirGuard Telegram`, `AirGuard Sheets`, `AirGuard Apify`, `AirGuard LLM`, `AirGuard Drone Intake`.
+- Secrets only in credentials `AirGuard Postgres`, `AirGuard Telegram`, `AirGuard Sheets`, `AirGuard Apify`, `AirGuard LLM`, `AirGuard Drone Intake`, `AirGuard Console`.
 - Error workflow = WF4.
 - Exports live in the owner's feature folder as `wfN-<name>.json`, credential IDs removed.
 
@@ -136,3 +136,14 @@ A drone's GNSS health for one sortie, POSTed by the ground station (or `features
 - WF2 opens an incident on one JAMMED/SPOOF report from the last 60 min. Confidence is `medium (drone only)`, or `high (ADS-B + drone)` when both sensors agree.
 
 Fixture: `drone-report.sample.json`.
+
+## C13 Console data
+
+The ops console (`features/console`) reads Supabase with the anon key, live through Supabase Realtime (`db/migrations/003`).
+
+- `sorties`: a mirror of the sheet tab `sorties` (C5 columns, kept as the sheet's text) plus `changed_at`. The sheet stays the source of truth.
+  WF3 syncs it every cycle, right after it reads the sheet; WF8 syncs it after each console request. Both call `sync_sorties(rows jsonb, by)`, which only the postgres role may run.
+- `sheet_sync`: one row, `{synced_at, n_rows, by}`.
+- Realtime tables: `agent_log`, `incidents`, `decisions`, `drone_reports`, `observations`, `sorties`, `sheet_sync`. `decisions` is readable by anon.
+- The console shows a sortie's status as the mirror row plus any decision made after `sheet_sync.synced_at`, mapped as `act.js` and `respond.js` write the sheet.
+- WF8 writes and removes only test sorties (`T-*`, C11).

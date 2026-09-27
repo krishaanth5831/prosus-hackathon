@@ -45,8 +45,8 @@ There is no green on the map, and no sortie status called "clear". A sortie with
    Supabase Postgres                  Google Sheet "AirGuard Sorties"
    observations, incidents,           (the unit's sortie plan)
    decisions, agent_log, baselines
-            ▲ read-only (RLS, anon key)
-   Leaflet map on Vercel
+            ▲ read-only (RLS, anon key), live (Realtime)
+   Leaflet map on Vercel · Ops console (npm run console, localhost)
 ```
 
 - **Apify** does all the collecting: 3 Baltic query points, adsb.lol with automatic failover to adsb.fi, deduped by aircraft.
@@ -73,16 +73,27 @@ The agent **acts** on sorties launching within 2 h and **watches** sorties launc
 
 ### Real vs demo data (honesty note)
 
-- **Real:** every aircraft, every NIC/NACp value and every jamming incident comes from live ADS-B (adsb.lol / adsb.fi). Nothing on the map is simulated.
+- **Real:** every aircraft, every NIC/NACp value and every aircraft-based incident comes from live ADS-B (adsb.lol / adsb.fi).
+- **Simulated:** the drones. Their border-patrol MAVLink telemetry comes from `features/console/fleet.js` or `features/collect/sim-drone.js`, and every drone report says SIMULATED (in `agent_log`, on the map, on Telegram).
 - **Demo:** the sorties. The 48 sorties of the *3rd Border Drone Sqn (DEMO, fictional)* are generated, but they are placed in cells that really had aircraft coverage, and the priority mix is fixed up front (12 priority / 24 routine / 12 low). Priority sorties always go to a human, so the mix drives the autonomous resolution rate.
 - **Limits:** jamming seen at airliner altitude is a wide-area early warning. A weak, local, low-altitude jammer can be missed. That's exactly why AirGuard never says "safe".
+
+### Ops console
+
+`npm run console`, then open http://localhost:8787 (it listens on 127.0.0.1 only). The unit's operations screen, live:
+
+- **Live airspace:** the eastern flank drawn from `features/console/geo.js`, locked to that region (you can zoom in, not out). Cells come from `cell_status`, aircraft from the last collect, drones from the simulated fleet. Click a drone for its telemetry, what its autopilot decided and what AirGuard decided. Click a cell for its evidence, or to place a simulated jammer or spoofer that only the simulated drones feel.
+- **Fleet, Sorties, Agent log, Pipeline:** the drones in the air and those kept on the ground; the Google Sheet (through its Supabase mirror) with the gate's latest decisions and the Telegram cards waiting for the officer; every `agent_log` line; the live state of Apify, n8n WF1–WF8, Supabase Realtime, the sheet mirror and the Telegram bot.
+- It updates by itself: Supabase Realtime for the data, server-sent events every 2 s for the fleet. Times are CEST; hover one for UTC.
+- **Load demo plan** writes 16 fictional sorties (T-301…T-316) into the sheet through WF8. Four fly at once; the gate checks the rest every cycle, so real Telegram messages follow. **Remove demo sorties** takes every T-* row out again.
+- `.env` needs the Supabase URL and anon key (the only values the browser gets), `N8N_*`, `APIFY_TOKEN`, `TELEGRAM_BOT_TOKEN`, `DRONE_INTAKE_TOKEN` and `CONSOLE_TOKEN`. Options: `--no-fleet`, `--fleet-speed=N`, `--mirror-real`.
 
 ### Setup
 
 1. `cp .env.example .env` and fill in the values (Supabase, n8n API, Apify, Telegram, Google Sheet). Never commit `.env`.
-2. Supabase: run `db/migrations/001_init.sql`.
+2. Supabase: run `db/migrations/001_init.sql`, `002_drone_reports.sql` and `003_console.sql`, in that order.
 3. Apify: push `features/collect/actor`, add a */5 schedule and the two webhooks (`airguard-apify`, `airguard-apify-failed`).
-4. n8n: create the five credentials and import WF1–WF6 in the order given in [`docs/n8n-import.md`](docs/n8n-import.md).
+4. n8n: create the credentials and import WF1–WF6 in the order given in [`docs/n8n-import.md`](docs/n8n-import.md), then WF7 (`features/collect/wf7-telemetry.json`, credential `AirGuard Drone Intake`) and WF8 (`features/console/wf8-console.json`, credential `AirGuard Console`).
 5. Sorties: `node features/gate/gen-sorties.js`, then import the CSV into the sheet **"AirGuard Sorties"**, tab `sorties`.
 6. Map: see [`docs/n8n-import.md`](docs/n8n-import.md#map-vercel). `?fixture=1` works without any backend.
 7. Tests: `npm test` (Node ≥ 20, zero dependencies). Detection SQL: `bash features/detect/fixtures/run-fixtures.sh`.
