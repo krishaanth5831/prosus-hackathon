@@ -66,8 +66,8 @@
     const pts = data.map((v, i) => [i / (data.length - 1) * w, h - 2 - ((v - min) / sp) * (h - 4)]);
     c.beginPath(); pts.forEach(([x, y], i) => c[i ? 'lineTo' : 'moveTo'](x, y)); c.lineTo(w, h); c.lineTo(0, h); c.closePath();
     const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, `${color}55`); g.addColorStop(1, `${color}00`); c.fillStyle = g; c.fill();
-    c.beginPath(); pts.forEach(([x, y], i) => c[i ? 'lineTo' : 'moveTo'](x, y)); c.strokeStyle = color; c.lineWidth = 1.4; c.stroke();
-    const [ex, ey] = pts[pts.length - 1]; c.fillStyle = color; c.beginPath(); c.arc(ex - 1.5, ey, 2.4, 0, 7); c.fill();
+    c.beginPath(); pts.forEach(([x, y], i) => c[i ? 'lineTo' : 'moveTo'](x, y)); c.strokeStyle = color; c.lineWidth = 1.8; c.stroke();
+    const [ex, ey] = pts[pts.length - 1]; c.fillStyle = color; c.beginPath(); c.arc(ex - 1.5, ey, 2.8, 0, 7); c.fill();
   }
 
   // ---------- state ----------
@@ -78,7 +78,9 @@
 
   // ---------- map: the console's own drawing of the eastern flank (geo.js), locked to that region ----------
   // A flat projection like the design (x = lon · cos 57°, y = lat) and no tile server. You can zoom in, never out.
-  const GEO = AG_GEO, RG = GEO.REGION;
+  const GEO = AG_GEO, RG = GEO.REGION, ROUTE = AG_ROUTE;
+  const css = getComputedStyle(document.documentElement), COL = {};   // one palette: the CSS tokens in index.html
+  for (const k of ['cyan', 'red', 'violet', 'amber', 'plan', 'grid', 'coast', 'hostile', 'border', 'nki', 'air', 'airbad']) COL[k] = css.getPropertyValue(`--${k}`).trim();
   const CRS = L.extend({}, L.CRS.Simple, { transformation: new L.Transformation(Math.cos(57 * Math.PI / 180), 0, -1, 0) });
   const REGION = L.latLngBounds([RG.lat0, RG.lon0], [RG.lat1, RG.lon1]);
   const map = L.map('map', { crs: CRS, zoomControl: false, zoomSnap: 0.1, zoomDelta: 0.5, wheelPxPerZoomLevel: 120,
@@ -96,17 +98,19 @@
   map.createPane('base').style.zIndex = 250;
   map.getPane('base').style.pointerEvents = 'none';
   map.createPane('air').style.zIndex = 380;
+  map.createPane('path').style.zIndex = 450;                  // the selected drone's path: above the cells, under the drones
+  map.getPane('path').style.pointerEvents = 'none';
   const flip = ([lon, lat]) => [lat, lon];
   const off = { pane: 'base', interactive: false };
-  for (let la = RG.lat0 + 0.5; la < RG.lat1; la += 0.5) L.polyline([[la, RG.lon0], [la, RG.lon1]], { ...off, color: '#a0b4c8', weight: 1, opacity: la % 1 ? 0.035 : 0.07 }).addTo(map);
-  for (let lo = Math.ceil(RG.lon0 * 2) / 2; lo < RG.lon1; lo += 0.5) L.polyline([[RG.lat0, lo], [RG.lat1, lo]], { ...off, color: '#a0b4c8', weight: 1, opacity: lo % 1 ? 0.035 : 0.07 }).addTo(map);
-  for (const line of GEO.COAST) L.polyline(line.map(flip), { ...off, color: '#3a4b5a', weight: 1.2 }).addTo(map);
-  for (const [line, hostile] of GEO.BORDERS) L.polyline(line.map(flip), { ...off, color: hostile ? '#6b7a88' : '#2c3a47', weight: hostile ? 1.6 : 1, dashArray: hostile ? null : '4 4' }).addTo(map);
+  for (let la = RG.lat0 + 0.5; la < RG.lat1; la += 0.5) L.polyline([[la, RG.lon0], [la, RG.lon1]], { ...off, color: COL.grid, weight: 1, opacity: la % 1 ? 0.05 : 0.1 }).addTo(map);
+  for (let lo = Math.ceil(RG.lon0 * 2) / 2; lo < RG.lon1; lo += 0.5) L.polyline([[RG.lat0, lo], [RG.lat1, lo]], { ...off, color: COL.grid, weight: 1, opacity: lo % 1 ? 0.05 : 0.1 }).addTo(map);
+  for (const line of GEO.COAST) L.polyline(line.map(flip), { ...off, color: COL.coast, weight: 1.4 }).addTo(map);
+  for (const [line, hostile] of GEO.BORDERS) L.polyline(line.map(flip), { ...off, color: hostile ? COL.hostile : COL.border, weight: hostile ? 1.8 : 1.1, dashArray: hostile ? null : '4 4' }).addTo(map);
   for (const l of GEO.LABELS) {
-    L.marker([l.lat, l.lon], { ...off, keyboard: false, icon: L.divIcon({ className: `geo-lbl${l.sea ? ' sea' : ''}`, html: esc(l.t), iconSize: [170, 14], iconAnchor: [85, 7] }) }).addTo(map);
+    L.marker([l.lat, l.lon], { ...off, keyboard: false, icon: L.divIcon({ className: `geo-lbl${l.sea ? ' sea' : ''}`, html: esc(l.t), iconSize: [190, 16], iconAnchor: [95, 8] }) }).addTo(map);
   }
   const G = { air: L.layerGroup().addTo(map), cells: L.layerGroup().addTo(map), effects: L.layerGroup().addTo(map), sel: L.layerGroup().addTo(map),
-    trails: L.layerGroup().addTo(map), drones: L.layerGroup().addTo(map) };
+    trails: L.layerGroup().addTo(map), path: L.layerGroup().addTo(map), drones: L.layerGroup().addTo(map) };
   map.on('click', (e) => { if (REGION.contains(e.latlng)) openCell(cellOf(e.latlng.lat, e.latlng.lng), e.latlng); });
 
   // the ADS-B sensor network at the last collect (real aircraft, from the newest Apify run)
@@ -114,8 +118,8 @@
     G.air.clearLayers();
     for (const a of (S.air && S.air.aircraft) || []) {
       if (!REGION.contains([a.lat, a.lon])) continue;
-      const col = a.spoof ? '#a58bff' : a.degraded ? '#ff8a7a' : '#aabed2';
-      L.circleMarker([a.lat, a.lon], { pane: 'air', radius: a.sensor ? 2.2 : 1.5, stroke: false, fillColor: col, fillOpacity: a.degraded || a.spoof ? 0.95 : 0.55, bubblingMouseEvents: false })
+      const col = a.spoof ? COL.violet : a.degraded ? COL.airbad : COL.air;
+      L.circleMarker([a.lat, a.lon], { pane: 'air', radius: a.sensor ? 2.4 : 1.7, stroke: false, fillColor: col, fillOpacity: a.degraded || a.spoof ? 1 : 0.65, bubblingMouseEvents: false })
         .bindTooltip(`${esc(a.flight || 'aircraft')} · ${a.alt ?? '–'} ft${a.degraded ? ' · GNSS degraded' : ''}${a.spoof ? ' · GPS/baro gap > 1500 ft' : ''}${a.sensor ? '' : ' · no NIC/NACp, not a sensor'}`, { direction: 'top', offset: [0, -4] })
         .addTo(G.air);
     }
@@ -123,11 +127,11 @@
 
   const shapes = new Map();
   function cellLook(c) {
-    if (c.state === 'JAMMED') return { cls: 'jam', color: '#ff5d5d', o: { color: '#ff5d5d', weight: 1.2, opacity: 0.9, fillColor: '#ff5d5d', fillOpacity: c.severity === 'high' ? 0.34 : 0.22 } };
-    if (c.state === 'SPOOF') return { cls: 'spoof', color: '#a58bff', o: { color: '#a58bff', weight: 1.2, opacity: 0.9, fillColor: '#a58bff', fillOpacity: 0.3 } };
+    if (c.state === 'JAMMED') return { cls: 'jam', color: COL.red, o: { color: COL.red, weight: 1.3, opacity: 0.95, fillColor: COL.red, fillOpacity: c.severity === 'high' ? 0.36 : 0.24 } };
+    if (c.state === 'SPOOF') return { cls: 'spoof', color: COL.violet, o: { color: COL.violet, weight: 1.3, opacity: 0.95, fillColor: COL.violet, fillOpacity: 0.32 } };
     if (c.state === 'UNKNOWN') return { cls: 'unk', o: { stroke: false, fillOpacity: 1 } };
     const drone = (c.n_total ?? 0) < 3 && !!c.drone_evidence;
-    return { cls: drone ? 'nki drone' : 'nki', o: { color: drone ? '#4fd1e0' : '#a0b4c8', weight: 1, opacity: drone ? 0.55 : 0.3, dashArray: drone ? '2 3' : null, fillOpacity: 0 } };
+    return { cls: drone ? 'nki drone' : 'nki', o: { color: drone ? COL.cyan : COL.nki, weight: 1, opacity: drone ? 0.65 : 0.38, dashArray: drone ? '2 3' : null, fillOpacity: 0 } };
   }
   function drawCells() {
     const seen = new Set();
@@ -147,7 +151,7 @@
   function drawEffects() {
     G.effects.clearLayers();
     for (const e of (S.fleet && S.fleet.effects) || []) {
-      L.rectangle(bounds(e.cell_id), { color: '#ffb547', weight: 1.6, dashArray: '6 8', fill: false, className: 'fx', interactive: false })
+      L.rectangle(bounds(e.cell_id), { color: COL.amber, weight: 1.8, dashArray: '6 8', fill: false, className: 'fx', interactive: false })
         .bindTooltip(`SIMULATED ${e.kind === 'jam' ? 'JAMMER' : 'SPOOFER'}`, { permanent: true, direction: 'center', className: 'fxtip' }).addTo(G.effects);
     }
   }
@@ -171,49 +175,78 @@
         <p class="note">Only the simulated drones feel it. What they report runs through the real pipeline: WF7 → WF2 → WF3 → Telegram.</p>` : ''}</div>`;
   }
 
-  // drones, drawn like the design: an arrow on its heading, its id, its GNSS state, a trail. They glide between updates.
-  const marks = new Map();
+  // drones, drawn like the design: an arrow on its heading, its id, its GNSS state, a faint trail. Between two updates
+  // (2 s apart) each one moves along its own route (route.js). The selected one shows its planned path, dotted, and what
+  // it has flown on this pass (this lap of its box, or this way along its line), solid.
+  const marks = new Map(), path = { key: null, flown: [] };
   const droneHtml = () => '<div class="ring"></div><div class="bad"></div><div class="body"><svg viewBox="-7 -9 14 16" width="14" height="16"><path d="M0 -8 L6 6 L0 3 L-6 6 Z"/></svg></div><div class="tag"><span></span><em></em></div>';
-  const TRAIL = { color: '#c8d7e6', weight: 1, opacity: 0.18 }, TRAIL_SEL = { color: '#4fd1e0', weight: 2, opacity: 0.8 };
+  const TRAIL = { color: COL.air, weight: 1.2, opacity: 0.24 };
   function drawDrones() {
     const drones = (S.fleet && S.fleet.drones) || [], ids = new Set(drones.map((d) => d.drone_id)), now = performance.now();
     for (const d of drones) {
       let k = marks.get(d.drone_id);
+      if (k && k.sortie !== d.sortie_id) { G.drones.removeLayer(k.m); G.trails.removeLayer(k.trail); k = null; }   // landed and flies another sortie
       if (!k) {
         const m = L.marker([d.lat, d.lon], { icon: L.divIcon({ className: 'drone-ic', iconSize: [0, 0], html: droneHtml() }), keyboard: false })
           .on('click', () => selectDrone(d.drone_id)).addTo(G.drones);
-        k = { m, from: [d.lat, d.lon], to: [d.lat, d.lon], t0: now, trail: null };
+        k = { m, sortie: d.sortie_id, dist: d.dist, d0: d.dist, d1: d.dist, t0: now, hdg: null, rot: 0, trail: L.polyline([], { ...TRAIL, interactive: false }).addTo(G.trails) };
         marks.set(d.drone_id, k);
-      } else { const p = k.m.getLatLng(); k.from = [p.lat, p.lng]; k.to = [d.lat, d.lon]; k.t0 = now; }
+      } else { k.d0 += (k.d1 - k.d0) * Math.min(1, (now - k.t0) / 2000); k.d1 = Math.max(k.d0, d.dist); k.t0 = now; }
+      k.route = d.route;
       const el = k.m.getElement();
       if (el) {
         el.classList.remove('NORMAL', 'JAMMED', 'SPOOF'); el.classList.add(d.env); el.classList.toggle('sel', d.drone_id === S.sel);
-        el.querySelector('.body').style.setProperty('--hdg', `${d.hdg}deg`);
         el.querySelector('.tag span').textContent = d.drone_id.replace('BG-', '');
         el.querySelector('.tag em').textContent = d.env === 'JAMMED' ? 'GNSS JAMMED' : d.env === 'SPOOF' ? 'GNSS SPOOF?' : '';
       }
-      const tr = S.trails.get(d.drone_id) || [];
-      if (!k.trail) k.trail = L.polyline(tr, { ...TRAIL, interactive: false }).addTo(G.trails);
-      k.trail.setLatLngs(tr);
-      k.trail.setStyle(d.drone_id === S.sel ? TRAIL_SEL : TRAIL);
+      k.trail.setLatLngs((S.trails.get(d.drone_id) || []).slice(0, -1));   // up to the last update, so never ahead of the drone
+      k.trail.setStyle({ opacity: d.drone_id === S.sel ? 0 : TRAIL.opacity });   // the selected one shows its flown path instead
     }
-    for (const [id, k] of marks) if (!ids.has(id)) { G.drones.removeLayer(k.m); if (k.trail) G.trails.removeLayer(k.trail); marks.delete(id); }
-    G.sel.clearLayers();
+    for (const [id, k] of marks) if (!ids.has(id)) { G.drones.removeLayer(k.m); G.trails.removeLayer(k.trail); marks.delete(id); }
     const d = drones.find((x) => x.drone_id === S.sel);
-    if (d && d.route && d.route.points.length) {
-      const pts = d.route.loop ? [...d.route.points, d.route.points[0]] : d.route.points;
-      L.polyline(pts, { color: '#4fd1e0', weight: 1.2, dashArray: '3 4', opacity: 0.45, interactive: false }).addTo(G.sel);
-    }
+    drawPath(d);
+    G.sel.clearLayers();
     if (d && d.ghost) {
-      L.polyline([[d.lat, d.lon], d.ghost], { color: '#a58bff', weight: 1, dashArray: '2 5', interactive: false }).addTo(G.sel);
+      L.polyline([[d.lat, d.lon], d.ghost], { color: COL.violet, weight: 1.2, dashArray: '2 5', interactive: false }).addTo(G.sel);
       L.marker(d.ghost, { icon: L.divIcon({ className: 'ghost-ic', iconSize: [0, 0] }), interactive: false })
         .bindTooltip('spoofed GNSS fix', { permanent: true, direction: 'right', offset: [8, 0] }).addTo(G.sel);
     }
   }
+  function drawPath(d) {             // planned: the whole route, dotted with a glow; flown: filled in by glide() every frame
+    const key = d ? `${d.drone_id}|${d.sortie_id}` : null;
+    if (key === path.key) return;
+    G.path.clearLayers(); path.key = key; path.flown = [];
+    if (!d) return;
+    const pts = d.route.loop ? [...d.route.points, d.route.points[0]] : d.route.points, o = { pane: 'path', interactive: false };
+    L.polyline(pts, { ...o, color: COL.plan, weight: 9, opacity: 0.14 }).addTo(G.path);
+    L.polyline(pts, { ...o, color: COL.plan, weight: 3, opacity: 1, dashArray: '0.5 8', lineCap: 'round' }).addTo(G.path);
+    path.flown = [L.polyline([], { ...o, color: COL.cyan, weight: 10, opacity: 0.2 }), L.polyline([], { ...o, color: COL.cyan, weight: 3.2, opacity: 1 })];
+    for (const l of path.flown) l.addTo(G.path);
+  }
+  function routeProgress(route, dist) {   // the drawer's numbers for the selected drone, every frame
+    const bar = document.getElementById('rpBar');
+    if (!bar) return;
+    const p = ROUTE.positionAt(route, dist), km = (m) => (m / 1000).toFixed(1);
+    const a = `${km(p.along)} of ${km(p.len)} km`, b = route.loop ? `lap ${p.pass}` : `pass ${p.pass} · ${p.back ? 'back' : 'out'}`;
+    const n = `${route.loop ? 'A box inside its cell, flown lap after lap' : `A line through ${route.points.length} cells, flown out and back`}. ${km(dist)} km since takeoff.`;
+    bar.style.width = `${(100 * p.along / p.len).toFixed(2)}%`;
+    for (const [id, t] of [['#rpA', a], ['#rpP', b], ['#rpN', n]]) if ($(id).textContent !== t) $(id).textContent = t;
+  }
   (function glide(t) {
-    for (const k of marks.values()) {
-      const f = Math.min(1, (t - k.t0) / 2000);
-      k.m.setLatLng([k.from[0] + (k.to[0] - k.from[0]) * f, k.from[1] + (k.to[1] - k.from[1]) * f]);
+    for (const [id, k] of marks) {
+      const dist = k.d0 + (k.d1 - k.d0) * Math.min(1, (t - k.t0) / 2000);
+      if (!Number.isFinite(dist) || !k.route) continue;
+      const p = ROUTE.positionAt(k.route, dist), hdg = Math.round(p.hdg), el = k.m.getElement();
+      k.dist = dist; k.m.setLatLng([p.lat, p.lon]);
+      if (hdg !== k.hdg && el) {                      // turn the short way round
+        k.rot = k.hdg === null ? hdg : k.rot + ((hdg - k.hdg + 540) % 360) - 180; k.hdg = hdg;
+        el.querySelector('.body').style.setProperty('--hdg', `${k.rot}deg`);
+      }
+      if (id === S.sel && path.flown.length) {
+        const fp = ROUTE.flownPath(k.route, dist);
+        for (const l of path.flown) l.setLatLngs(fp);
+        routeProgress(k.route, dist);
+      }
     }
     requestAnimationFrame(glide);
   })(performance.now());
@@ -227,7 +260,7 @@
     render();
   }
   document.querySelectorAll('#nav button').forEach((b) => { b.onclick = () => go(b.dataset.v); });
-  $('#close').onclick = () => { $('#drawer').classList.remove('open'); S.sel = null; drawDrones(); };
+  $('#close').onclick = () => { $('#drawer').classList.remove('open'); $('#v-live').classList.remove('dopen'); S.sel = null; drawDrones(); };
   document.querySelectorAll('#dtabs button').forEach((b) => {
     b.onclick = () => { S.tab = b.dataset.t; document.querySelectorAll('#dtabs button').forEach((x) => x.classList.toggle('on', x === b)); renderDrawer(true); };
   });
@@ -236,11 +269,11 @@
   });
   function selectDrone(id) {
     S.sel = id; S.tab = S.tab || 'tel';
-    $('#drawer').classList.add('open');
+    $('#drawer').classList.add('open'); $('#v-live').classList.add('dopen');
     if (S.view !== 'live') go('live');
     renderDrawer(true); drawDrones();
     const d = ((S.fleet && S.fleet.drones) || []).find((x) => x.drone_id === id);
-    if (d) map.panTo([d.lat, d.lon], { animate: true });
+    if (d) map.flyToBounds(L.latLngBounds(d.route.points), { paddingTopLeft: [60, 100], paddingBottomRight: [$('#drawer').offsetWidth + 60, 100], maxZoom: map.getMinZoom() + 3, duration: 0.6 });
   }
   const logHtml = (l, isNew) => `<div class="ev k-${window.logKind(l.workflow)}${isNew ? ' new' : ''}"><div><span class="a">${esc(l.action)}</span><span class="m">${tm(l.ts, true)} · ${esc(l.workflow)}</span></div>`
     + `<div class="r">${esc(local(l.reason, l.ts))}</div>${l.outcome ? `<div class="o">→ ${esc(local(l.outcome, l.ts))}</div>` : ''}</div>`;
@@ -251,7 +284,7 @@
     const R = rows(), hold = R.filter((r) => r.status === 'HOLD').length, need = R.filter((r) => r.pending).length;
     const air = ((S.fleet && S.fleet.drones) || []).length;
     $('#chips').innerHTML = [['var(--red)', `${n.JAMMED} JAMMED`], ['var(--violet)', `${n.SPOOF} SPOOF`], ['var(--unk)', `${n.UNKNOWN} UNKNOWN`],
-      ['#9fb0c2', `${n.NO_KNOWN_ISSUE} NO KNOWN ISSUE`], ['var(--amber)', `${hold} ON HOLD`], ...(CFG.fleet ? [['var(--cyan)', `${air} AIRBORNE`]] : [])]
+      ['var(--nki)', `${n.NO_KNOWN_ISSUE} NO KNOWN ISSUE`], ['var(--amber)', `${hold} ON HOLD`], ...(CFG.fleet ? [['var(--cyan)', `${air} AIRBORNE`]] : [])]
       .map(([col, t]) => `<div class="chip"><span class="dot" style="background:${col}"></span>${t}</div>`).join('')
       + (need ? `<div class="chip hot"><span class="dot" style="background:var(--amber)"></span>${need} WAITING FOR THE OFFICER</div>` : '');
     $('#needCount').hidden = !need; $('#needCount').textContent = need;
@@ -270,28 +303,32 @@
       return;
     }
     $('#dId').textContent = d.drone_id;
-    $('#dUnit').textContent = `${d.unit || ''} · sortie ${d.sortie_id} · ${d.priority || ''}`;
+    $('#dUnit').innerHTML = `${esc(d.unit)} · <span class="nw">sortie ${esc(d.sortie_id)}</span> · ${esc(d.priority)}`;
     $('#dState').innerHTML = `<span class="state s-${d.env}">GNSS ${d.env === 'NORMAL' ? 'NOMINAL' : d.env === 'JAMMED' ? 'JAMMED' : 'SPOOF SUSPECTED'} · ${esc(d.nav)}</span>`;
     const b = $('#dbody');
     if (S.tab === 'tel') {
       if (full || !b.querySelector('#tg1')) {
-        b.innerHTML = `<div class="lbl" style="margin-bottom:6px">GNSS health</div><div class="tgrid" id="tg1"></div>
+        const unit = d.route.loop ? 'lap' : 'pass';
+        b.innerHTML = `<div class="lbl" style="margin-bottom:6px">Planned path</div>
+          <div class="route"><div class="row"><span id="rpA">–</span><span id="rpP"></span></div><div class="bar"><i id="rpBar"></i></div>
+            <div class="key"><span><i class="sw plan"></i>planned path</span><span><i class="sw flown"></i>flown this ${unit}</span></div><div class="note" id="rpN"></div></div>
+          <div class="lbl" style="margin-bottom:6px">GNSS health</div><div class="tgrid" id="tg1"></div>
           <div class="sparks"><div class="sp"><div class="lbl">Satellites</div><canvas id="spS"></canvas></div><div class="sp"><div class="lbl">h_acc (m)</div><canvas id="spH"></canvas></div></div>
           <div class="lbl" style="margin-bottom:6px">Flight</div><div class="tgrid" id="tg2"></div>
           <p class="note">SIMULATED telemetry in MAVLink GPS_RAW_INT and PX4 SensorGps field names, every 2 s.</p>`;
       }
-      const c = S.cells.get(d.cell), fx = ((S.fleet && S.fleet.effects) || []).find((e) => e.cell_id === d.cell);
+      const c = S.cells.get(d.cell), fx = ((S.fleet && S.fleet.effects) || []).find((e) => e.cell_id === d.cell), speed = (S.fleet && S.fleet.speed) || 1;
       const cell = (k, v, cls = '') => `<div><div class="k">${k}</div><div class="v ${cls}">${esc(v)}</div></div>`;
       $('#tg1').innerHTML = cell('GNSS fix', fixName(d.fix_type), d.fix_type < 3 ? 'bad' : '') + cell('Satellites', d.sats, d.sats < 6 ? 'bad' : '')
         + cell('h_acc', `${d.h_acc} m`, d.h_acc > 10 ? 'bad' : '') + cell('Jamming flag', jamName(d.jam), d.jam >= 2 ? 'bad' : '')
         + cell('Spoofing flag', spoofName(d.spoof), d.spoof >= 2 ? 'spoof' : '') + cell('GNSS / INS gap', `${d.gap} m`, d.gap > 100 ? 'spoof' : '')
         + cell('Navigation', d.nav, d.nav !== 'GNSS' ? 'warn' : '')
         + cell('Cell', `${d.cell} · ${STATE_LABEL[c ? c.state : 'UNKNOWN']}${fx ? ' · sim ' + (fx.kind === 'jam' ? 'jammer' : 'spoofer') : ''}`, c && c.state === 'JAMMED' ? 'bad' : c && c.state === 'SPOOF' ? 'spoof' : '');
-      $('#tg2').innerHTML = cell('Position', `${d.lat.toFixed(4)}°N ${d.lon.toFixed(4)}°E`) + cell('Altitude', `${d.alt} m AGL`) + cell('Ground speed', `${d.spd} m/s`)
+      $('#tg2').innerHTML = cell('Position', `${d.lat.toFixed(4)}°N ${d.lon.toFixed(4)}°E`) + cell('Altitude', `${d.alt} m AGL`) + cell('Ground speed', `${d.spd} m/s${speed > 1 ? ` · map ${speed}×` : ''}`)
         + cell('Heading', `${String(d.hdg).padStart(3, '0')}°`) + cell('Battery', `${d.batt} %`, d.batt < 30 ? 'warn' : '') + cell('Link', `${d.rssi} dBm`)
         + cell('Airborne', `${d.airborne_min} min`) + cell('Sortie', d.sortie_id);
       const h = S.hist.get(d.drone_id) || { sats: [], hacc: [] };
-      spark($('#spS'), h.sats, '#4fd1e0', { min: 0, max: 18 }); spark($('#spH'), h.hacc, d.env === 'NORMAL' ? '#4fd1e0' : '#ff5d5d', { min: 0 });
+      spark($('#spS'), h.sats, COL.cyan, { min: 0, max: 18 }); spark($('#spH'), h.hacc, d.env === 'NORMAL' ? COL.cyan : COL.red, { min: 0 });
     } else if (S.tab === 'drone') {
       const ev = d.events || [];
       b.innerHTML = '<p class="sub">What the drone and its ground station did on their own: GNSS changes, the autopilot\'s reaction, reports sent to AirGuard.</p>'
@@ -313,11 +350,11 @@
     $('#fleetSub').textContent = CFG.fleet
       ? `${F.drones.length} simulated drones in the air. Each flies a sortie from the sheet once its launch time comes; HOLD and CANCELLED sorties stay on the ground. Telemetry every 2 s${F.speed > 1 ? ` at ${F.speed}× speed` : ''}. Reports sent to WF7: ${(F.reports && F.reports.sent) || 0}${F.reports && F.reports.failed ? `, failed: ${F.reports.failed}` : ''}.`
       : 'The simulated fleet is off (the server was started with --no-fleet).';
-    $('#fleetRows').innerHTML = F.drones.map((d) => `<tr class="click" data-id="${esc(d.drone_id)}"><td style="font-weight:600">${esc(d.drone_id)}</td><td>${esc(d.sortie_id)}</td><td>${esc(d.unit)}</td>`
+    $('#fleetRows').innerHTML = F.drones.map((d) => `<tr class="click" data-id="${esc(d.drone_id)}"><td style="font-weight:700">${esc(d.drone_id)}</td><td>${esc(d.sortie_id)}</td><td>${esc(d.unit)}</td>`
       + `<td><span class="state s-${d.env}" style="margin:0">${d.env === 'NORMAL' ? 'NOMINAL' : d.env}</span></td><td>${d.sats}</td><td class="v ${d.h_acc > 10 ? 'bad' : ''}">${d.h_acc} m</td>`
       + `<td>${esc(d.nav)}</td><td>${d.batt} %</td><td>${d.airborne_min} min</td><td><canvas id="fs-${esc(d.drone_id)}"></canvas></td></tr>`).join('')
       || '<tr><td colspan="10" style="color:var(--muted)">No drone in the air. A sortie flies when its launch time comes; load the demo plan on the Sorties page to start some.</td></tr>';
-    for (const d of F.drones) spark(document.getElementById(`fs-${d.drone_id}`), (S.hist.get(d.drone_id) || { hacc: [] }).hacc, d.env === 'NORMAL' ? '#4fd1e0' : '#ff5d5d', { min: 0 });
+    for (const d of F.drones) spark(document.getElementById(`fs-${d.drone_id}`), (S.hist.get(d.drone_id) || { hacc: [] }).hacc, d.env === 'NORMAL' ? COL.cyan : COL.red, { min: 0 });
     document.querySelectorAll('#fleetRows tr.click').forEach((r) => { r.onclick = () => selectDrone(r.dataset.id); });
     $('#grounded').innerHTML = F.grounded.length ? F.grounded.map((s) => `<div class="box"><b style="font-family:var(--mono)">${esc(s.sortie_id)}</b> · ${esc(s.status)} · launch was ${tm(s.launch_at)}<div class="note">${esc(s.unit)} · ${s.cells.map(esc).join(', ')}</div></div>`).join('')
       : '<p class="sub">None right now.</p>';
@@ -415,10 +452,22 @@
   }
   const soonRender = debounce(render, 250);
 
-  // clicks: simulation effects, demo buttons
+  // the speed switch in the header: real time, 10x, 20x (only the simulated drones; the pipeline keeps real time)
+  function renderSpeed() {
+    const sp = S.fleet ? S.fleet.speed : CFG.speed;
+    document.querySelectorAll('#speed button').forEach((b) => { const on = Number(b.dataset.speed) === sp; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+  }
+
+  // clicks: speed switch, simulation effects, demo buttons
   document.addEventListener('click', async (e) => {
-    const fx = e.target.closest('[data-fx]'), demo = e.target.closest('[data-demo]'), goBtn = e.target.closest('[data-go]');
+    const fx = e.target.closest('[data-fx]'), demo = e.target.closest('[data-demo]'), goBtn = e.target.closest('[data-go]'), sp = e.target.closest('[data-speed]');
     try {
+      if (sp) {
+        const btns = document.querySelectorAll('#speed button');
+        btns.forEach((b) => { b.disabled = true; });
+        try { const r = await post('/api/fleet/speed', { speed: Number(sp.dataset.speed) }); if (S.fleet) S.fleet.speed = r.speed; renderSpeed(); }
+        finally { btns.forEach((b) => { b.disabled = false; }); }
+      }
       if (fx) {
         fx.disabled = true;
         const r = await post('/api/sim/effect', { cell_id: fx.dataset.cell, kind: fx.dataset.fx });
@@ -542,7 +591,7 @@
       if (S.fleetReady && /TAKEOFF|LANDED|GNSS|SIMULATION/.test(e.action)) toast('drone', e.action, e.detail);
     }
     S.fleetReady = true;
-    drawDrones(); drawEffects();
+    drawDrones(); drawEffects(); renderSpeed();
     if (S.view === 'live' && S.sel) renderDrawer(false);
     if (S.view === 'fleet') renderFleet();
     renderChips();
@@ -550,7 +599,7 @@
   function startFleet() {
     if (!CFG.fleet) return;
     $('#simBadge').hidden = false;
-    if (CFG.speed > 1) $('#simBadge').textContent = `DRONES SIMULATED · ${CFG.speed}× SPEED`;
+    renderSpeed();
     const es = new EventSource('/api/fleet/stream');
     es.onmessage = (m) => { S.fleet = JSON.parse(m.data); onFleet(); };
   }

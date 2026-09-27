@@ -1,5 +1,5 @@
 // Owner: Krish (see CLAUDE.md)
-// The ops console: sortie board, pipeline summaries, simulated fleet, demo plan, WF8 helpers, server guards, page rules.
+// The ops console: sortie board, pipeline summaries, drone routes, simulated fleet, demo plan, WF8 helpers, server guards, page rules.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -7,7 +7,8 @@ const path = require('node:path');
 const { boardRows, column, logKind, localTimes } = require('./board.js');
 const { n8nSummary, apifySummary, telegramSummary, aircraftView, nextCollect } = require('./status.js');
 const GEO = require('./geo.js');
-const { Fleet, routeFor, positionAt, gnss, airborne, keptDown, cellId, SOURCE } = require('./fleet.js');
+const { routeFor, positionAt, flownPath } = require('./route.js');
+const { Fleet, gnss, airborne, keptDown, cellId, SOURCE, SPEEDS } = require('./fleet.js');
 const { demoPlan } = require('./demoPlan.js');
 const { consoleRequest, testRowNumbers, C5 } = require('./sheetOps.js');
 const { allowedHost, sameOrigin } = require('./server.js');
@@ -109,6 +110,26 @@ test('fleet: routes stay inside their planned cells, both ways along a line and 
   const out = positionAt(line, 10e3), back = positionAt(line, 2 * L - 10e3);
   assert.ok(Math.abs(out.lat - back.lat) < 1e-6 && Math.abs(out.lon - back.lon) < 1e-6, 'the way back passes the same points');
   assert.equal((out.hdg + 180) % 360, back.hdg);
+  assert.deepEqual([out.pass, out.back, back.pass, back.back], [1, false, 2, true]);
+  const lap2 = positionAt(box, positionAt(box, 0).len + 5e3);
+  assert.deepEqual([lap2.pass, lap2.back, Math.round(lap2.along)], [2, false, 5000], 'the box: lap after lap, never back');
+});
+
+test('route: the flown part is this pass so far, from where it began to the drone', () => {
+  const line = routeFor(['54.0_23.0', '54.0_23.5']), box = routeFor(['59.0_27.5']);
+  const L = positionAt(line, 0).len, [a, b] = line.points;
+  assert.deepEqual(flownPath(line, 0), [a, a]);
+  const out = flownPath(line, 10e3);
+  assert.deepEqual([out.length, out[0]], [2, a], 'out: from the first cell centre');
+  assert.ok(Math.abs(out[1][1] - (a[1] + (b[1] - a[1]) * 10e3 / L)) < 1e-9);
+  const back = flownPath(line, L + 4e3);
+  assert.deepEqual([back.length, back[0]], [2, b], 'back: from the far end, the old pass is not drawn');
+  const edge = positionAt(box, 0).len / 4;                    // the box's first side, its long east-west one, is not a quarter
+  const lap = flownPath(box, 1.5 * edge), [p0, p1] = box.points;
+  assert.deepEqual(lap.slice(0, 2), [p0, p1], 'a lap: the corners passed so far, then the drone');
+  assert.deepEqual(lap.at(-1), (({ lat, lon }) => [lat, lon])(positionAt(box, 1.5 * edge)));
+  assert.equal(flownPath(box, positionAt(box, 0).len + 1).length, 2, 'a new lap starts from the first corner again');
+  assert.deepEqual(routeFor(['54.0_23.0', '54.0_23.0', 'x']), routeFor(['54.0_23.0']), 'a cell named twice is one cell');
 });
 
 test('fleet: only sorties the sheet and the gate let fly take off; HOLD and CANCELLED stay down', () => {
@@ -153,18 +174,40 @@ test('fleet: a simulated jammer degrades the drone, the leg report is C12 and na
   assert.deepEqual([g.fix_type, g.spoofing_state >= 2, g.gap > 100], [3, true, true], 'a spoofer hands out a confident fix');
 });
 
-test('fleet: a fast demo fleet still sends few reports (each is an n8n execution); ground speed stays the cruise speed', () => {
-  const sent = [];
-  const f = new Fleet({ post: (r) => { sent.push(r); return Promise.resolve(); }, speed: 10, rng: () => 0.3 });
+for (const speed of [10, 20]) {
+  test(`fleet: a fast demo fleet (${speed}x) still sends few reports (each is an n8n execution); ground speed stays the cruise speed`, () => {
+    const sent = [];
+    const f = new Fleet({ post: (r) => { sent.push(r); return Promise.resolve(); }, speed, rng: () => 0.3 });
+    const t0 = Date.parse('2026-09-27T10:00:00Z');
+    f.setSorties(boardRows([row('T-8', { launch_at: '2026-09-27T09:59:00Z' })], [], SYNC));   // a line across 54.0_23.0 and 54.0_23.5
+    f.setEffect('54.0_23.5', 'jam');
+    let snap;
+    for (let t = t0; t < t0 + 30 * 60e3; t += 2000) snap = f.tick(t);
+    const early = sent.filter((r) => r.legs[0].cell_id === '54.0_23.5');
+    assert.ok(sent.length >= 3 && sent.length <= 9, `${sent.length} reports in 30 min at ${speed}x`);
+    assert.ok(early.length >= 1, 'the jammed cell is reported');
+    assert.ok(snap.drones[0].spd > 20 && snap.drones[0].spd < 30, 'cruise speed, not cruise x the demo factor');
+  });
+}
+
+test('fleet: the speed switch (real time, 10x, 20x) keeps every drone where it is and only changes how fast it moves on', () => {
+  const f = new Fleet({ post: () => Promise.resolve(), speed: 10, rng: () => 0.3 });
   const t0 = Date.parse('2026-09-27T10:00:00Z');
-  f.setSorties(boardRows([row('T-8', { launch_at: '2026-09-27T09:59:00Z' })], [], SYNC));   // a line across 54.0_23.0 and 54.0_23.5
-  f.setEffect('54.0_23.5', 'jam');
-  let snap;
-  for (let t = t0; t < t0 + 30 * 60e3; t += 2000) snap = f.tick(t);
-  const early = sent.filter((r) => r.legs[0].cell_id === '54.0_23.5');
-  assert.ok(sent.length >= 3 && sent.length <= 9, `${sent.length} reports in 30 min at 10x`);
-  assert.ok(early.length >= 1, 'the jammed cell is reported');
-  assert.ok(snap.drones[0].spd > 20 && snap.drones[0].spd < 30, 'cruise speed, not cruise x the demo factor');
+  f.setSorties(boardRows([row('T-8', { launch_at: '2026-09-27T09:59:00Z' })], [], SYNC));
+  const a = f.tick(t0).drones[0];
+  assert.equal(a.dist, 25 * 10 * 60, 'takeoff a minute ago at 10x: 15 km along');
+  f.setSpeed(20, t0 + 1000);
+  const b = f.tick(t0 + 1000).drones[0];
+  assert.equal(b.dist, a.dist + 250, 'the second before the switch still flew at 10x');
+  assert.deepEqual(f.tick(t0 + 3000).drones[0].dist, b.dist + 1000, 'then 20x');
+  f.setSpeed(1, t0 + 3000);
+  assert.equal(f.tick(t0 + 5000).drones[0].dist, b.dist + 1000 + 50, 'real time: 25 m/s');
+  assert.deepEqual(SPEEDS, [1, 10, 20]);
+  for (const bad of [5, '10', 0, null]) assert.throws(() => f.setSpeed(bad), /speed must be 1, 10, 20/);
+  assert.equal(f.speed, 1);
+  assert.match(f.tick(t0 + 7000).events.find((e) => e.action.startsWith('SIMULATION SPEED')).action, /^SIMULATION SPEED REAL TIME$/);
+  const where = positionAt(routeFor(['54.0_23.0', '54.0_23.5']), b.dist);
+  assert.ok(Math.abs(where.lat - b.lat) < 1e-5 && Math.abs(where.lon - b.lon) < 1e-5, 'the map computes the same position from dist');
 });
 
 test('demo plan: 16 fictional C5 test sorties on the eastern-flank borders, 4 already launched', () => {
@@ -234,10 +277,12 @@ test('server: only this host, and POSTs only from this page', () => {
   const server = text('server.js');
   assert.match(server, /server\.listen\(PORT, HOST/);
   assert.match(server, /const HOST = '127\.0\.0\.1'/);
+  assert.ok(server.indexOf("pathname === '/api/fleet/speed'") > server.indexOf('if (!sameOrigin('), 'the speed switch is a POST behind the origin check');
 });
 
+const PAGE_FILES = ['index.html', 'app.js', 'board.js', 'route.js', 'geo.js', 'fleet.js', 'demoPlan.js', 'sheetOps.js', 'status.js', 'server.js'];
 test('page: never safe or clear, no green, no key in the repo, CEST, pinned and checked libraries', () => {
-  for (const f of ['index.html', 'app.js', 'board.js', 'fleet.js', 'demoPlan.js', 'sheetOps.js', 'status.js', 'server.js']) {
+  for (const f of PAGE_FILES) {
     const src = text(f).replace(/never (shows|says) safe/g, '');
     assert.doesNotMatch(src, /\b(safe|clear|cleared)\b/i, `${f}: never safe or clear`);
     assert.doesNotMatch(src, /green|lime|#0f0\b|#00ff00|🟢|✅/i, `${f}: no green`);
@@ -252,4 +297,23 @@ test('page: never safe or clear, no green, no key in the repo, CEST, pinned and 
   assert.match(app, /map\.setMinZoom\(z\)/, 'zoomed all the way out shows the region; no further out');
   assert.match(app, /maxBounds: REGION/, 'panning stays inside the region');
   assert.doesNotMatch(app, /toLocale\w*String\(\)|getHours\(\)/, 'no browser-local time');
+});
+
+test('page: the one green is the selected drone\'s planned path (asked for by Krish), a route and never a status', () => {
+  const PLAN = '#39ff14';
+  const rgb = (h) => (h.length === 4 ? [...h.slice(1)].map((c) => parseInt(c + c, 16)) : [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
+  const green = (h) => { const [r, g, b] = rgb(h); return g > 1.3 * r && g > 1.3 * b; };
+  assert.deepEqual(['#39ff14', '#0f0', '#62e3f1', '#ffc15a', '#b4c6d8', '#ff6b6b'].map(green), [true, true, false, false, false, false]);
+  for (const f of PAGE_FILES) {
+    for (const h of text(f).match(/#[0-9a-f]{6}\b|#[0-9a-f]{3}\b/gi) || []) if (green(h)) assert.equal(h.toLowerCase(), PLAN, `${f}: ${h} is green`);
+    for (const m of text(f).matchAll(/rgba?\((\d+),\s*(\d+),\s*(\d+)/g)) assert.ok(!(m[2] > 1.3 * m[1] && m[2] > 1.3 * m[3]), `${f}: ${m[0]} is green`);
+  }
+  const html = text('index.html'), app = text('app.js');
+  assert.deepEqual((html + app).match(/#39ff14/gi), [PLAN], 'defined once, as the --plan token');
+  assert.match(html, /--plan:#39ff14;/);
+  assert.deepEqual(html.match(/.*var\(--plan\).*/g).map((l) => /\.sw\.plan|planned path/.test(l)), [true, true], 'only the legend and drawer swatches of the planned path');
+  assert.equal(app.match(/COL\.plan/g).length, 2, 'drawn twice, both in drawPath: the planned path and its glow');
+  const draw = app.slice(app.indexOf('function drawPath'), app.indexOf('function routeProgress'));
+  assert.equal(draw.match(/COL\.plan/g).length, 2);
+  assert.match(html, /planned path \(a route, not a status\)/, 'the legend says what it is');
 });

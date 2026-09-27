@@ -2,7 +2,7 @@
 // Owner: Krish (see CLAUDE.md)
 // AirGuard ops console: a zero-dependency local server.   npm run console   (= node features/console/server.js)
 //   --no-fleet          do not fly the simulated fleet
-//   --fleet-speed=N     the simulated drones fly N times faster than real time (default 1)
+//   --fleet-speed=N     the simulated drones fly N times faster than real time (default 1; the console switches 1, 10, 20)
 //   --mirror-real       simulated drones also degrade in cells with a live (real) incident
 // The browser gets only the public Supabase URL and anon key (select-only by RLS) and reads Supabase itself, live.
 // Everything else that needs a secret (n8n, Apify, Telegram, the drone and console tokens) stays in this process.
@@ -17,7 +17,7 @@ const { demoPlan } = require('./demoPlan.js');
 
 const HOST = '127.0.0.1';
 const JS = 'text/javascript; charset=utf-8';
-const FILES = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', JS], '/board.js': ['board.js', JS], '/geo.js': ['geo.js', JS] };
+const FILES = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', JS], '/board.js': ['board.js', JS], '/geo.js': ['geo.js', JS], '/route.js': ['route.js', JS] };
 const hosts = (port) => [`127.0.0.1:${port}`, `localhost:${port}`];
 const allowedHost = (host, port) => hosts(port).includes(String(host || '').toLowerCase());
 const sameOrigin = (origin, port) => hosts(port).some((h) => origin === `http://${h}`);
@@ -169,6 +169,11 @@ function main() {
         if (!fleet) return json(409, { error: 'the simulated fleet is off (--no-fleet)' });
         fleet.setEffect(body.cell_id, body.kind);
         return json(200, { effects: [...fleet.effects].map(([cell_id, e]) => ({ cell_id, ...e })) });
+      }
+      if (pathname === '/api/fleet/speed') {
+        if (!fleet) return json(409, { error: 'the simulated fleet is off (--no-fleet)' });
+        try { fleet.setSpeed(body.speed); } catch (e) { return json(400, { error: e.message }); }
+        return json(200, { speed: fleet.speed });
       }
       if (pathname === '/api/demo') {
         if (!['load', 'remove', 'sync'].includes(body.op)) return json(400, { error: 'op must be load, remove or sync' });

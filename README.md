@@ -80,9 +80,9 @@ The agent **acts** on sorties launching within 2 h and **watches** sorties launc
 
 ### Ops console
 
-`npm run console`, then open http://localhost:8787 (it listens on 127.0.0.1 only). `npm run console:demo` flies the simulated drones 10× faster, so they visibly move at the default zoom. The unit's operations screen, live:
+`npm run console`, then open http://localhost:8787 (it listens on 127.0.0.1 only). The switch in the header flies the simulated drones in real time, 10× or 20× (`npm run console:demo` starts at 10×). Only the drones speed up: sorties launch at their sheet times and the pipeline keeps its 5-minute cycle. The unit's operations screen, live:
 
-- **Live airspace:** the eastern flank drawn from `features/console/geo.js`, locked to that region (you can zoom in, not out). Cells come from `cell_status`, aircraft from the last collect, drones from the simulated fleet. Click a drone for its telemetry, what its autopilot decided and what AirGuard decided. Click a cell for its evidence, or to place a simulated jammer or spoofer that only the simulated drones feel.
+- **Live airspace:** the eastern flank drawn from `features/console/geo.js`, locked to that region (you can zoom in, not out). Cells come from `cell_status`, aircraft from the last collect, drones from the simulated fleet. Click a drone for its planned patrol path (dotted) and what it has flown on this pass (solid cyan), its telemetry, what its autopilot decided and what AirGuard decided. Click a cell for its evidence, or to place a simulated jammer or spoofer that only the simulated drones feel.
 - **Fleet, Sorties, Agent log, Pipeline:** the drones in the air and those kept on the ground; the Google Sheet (through its Supabase mirror) with the gate's latest decisions and the Telegram cards waiting for the officer; every `agent_log` line; the live state of Apify, n8n WF1–WF8, Supabase Realtime, the sheet mirror and the Telegram bot.
 - It updates by itself: Supabase Realtime for the data, server-sent events every 2 s for the fleet. Times are CEST; hover one for UTC.
 - **Load demo plan** writes 16 fictional sorties (T-301…T-316) into the sheet through WF8. Four fly at once; the gate checks the rest every cycle, so real Telegram messages follow. **Remove demo sorties** takes every T-* row out again.
