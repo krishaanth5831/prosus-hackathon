@@ -38,14 +38,16 @@ function apifySummary(runs, meta, schedule, now) {
   };
 }
 
-// telegramSummary(getMe result, getWebhookInfo result): the bot's name and whether n8n's webhook is healthy
-function telegramSummary(me, hook, now) {
+// telegramSummary(getMe result, getWebhookInfo result, now, getChat result, member count): the bot's name, the ops
+// group's title and size, and whether n8n's webhook is healthy. Never an id or the webhook URL.
+function telegramSummary(me, hook, now, chat = null, members = null) {
   const lastError = hook && hook.last_error_date ? hook.last_error_date * 1000 : null;
   return {
     bot: me ? me.username : null,
     webhook: hook ? !!hook.url : null,
     pending: hook ? hook.pending_update_count || 0 : null,
     lastError: lastError && now - lastError < 3600e3 ? { at: new Date(lastError).toISOString(), message: hook.last_error_message } : null,
+    group: chat ? { title: chat.title || null, members: Number.isFinite(members) ? members : null } : null,
   };
 }
 

@@ -5,7 +5,7 @@
 // The mapping is the one act.js (agent) and respond.js (officer) apply to the sheet.
 
 const HOLD_LEVELS = ['L3_HOLD', 'L4_SPOOF_HOLD', 'BRAKE_HOLD'];
-const ANSWER_STATUS = { keep: 'HOLD', launch: 'LAUNCH_APPROVED', false_alarm: 'PLANNED' };
+const ANSWER_STATUS = { keep: 'HOLD', launch: 'LAUNCH_APPROVED', cancel: 'CANCELLED', false_alarm: 'PLANNED' };
 const isoZ = (t) => (t ? new Date(t).toISOString().replace('.000Z', 'Z') : null);
 
 // boardRows(sorties: mirror rows, decisions: decisions rows, syncedAt: sheet_sync.synced_at) -> board rows
@@ -18,18 +18,19 @@ function boardRows(sorties, decisions, syncedAt) {
   const sync = Date.parse(syncedAt) || 0;
   return sorties.map((s) => {
     const d = latest.get(s.sortie_id) || null;
-    let { status, launch_at: launchAt, decided_by: decidedBy } = s;
+    let { status, launch_at: launchAt, decided_by: decidedBy, cells } = s;
     if (d && Date.parse(d.ts) > sync) {                       // the gate acted after the mirror read the sheet
+      if (d.level === 'L1_REROUTE') { status = 'REROUTED'; cells = d.new_cells || cells; decidedBy = 'agent'; }
       if (d.level === 'L1_RESCHEDULE') { status = 'RESCHEDULED'; launchAt = isoZ(d.new_launch_at) || launchAt; decidedBy = 'agent'; }
       if (d.level === 'L2_CANCEL') { status = 'CANCELLED'; decidedBy = 'agent'; }
-      if (HOLD_LEVELS.includes(d.level)) { status = 'HOLD'; decidedBy = 'agent'; }
+      if (d.level === 'L3_AUTO_HOLD' || HOLD_LEVELS.includes(d.level)) { status = 'HOLD'; decidedBy = 'agent'; }
     }
     if (d && d.human_answer && status === 'HOLD' && ANSWER_STATUS[d.human_answer]) {   // answered on Telegram
       status = ANSWER_STATUS[d.human_answer]; decidedBy = d.decided_by;
     }
     return {
-      ...s, status, launch_at: launchAt, decided_by: decidedBy,
-      cellList: String(s.cells || '').split(';').map((c) => c.trim()).filter(Boolean),
+      ...s, status, launch_at: launchAt, decided_by: decidedBy, cells,
+      cellList: String(cells || '').split(';').map((c) => c.trim()).filter(Boolean),
       level: d ? d.level : null, reason: d ? d.reason : (s.note || ''), decision: d,
       pending: !!d && HOLD_LEVELS.includes(d.level) && !d.human_answer && status === 'HOLD',
     };
@@ -41,9 +42,30 @@ function column(r, now, flying) {
   if (r.pending) return 'officer';
   if (flying.has(r.sortie_id)) return 'flight';
   if (r.status === 'HOLD') return 'hold';
-  if (r.status === 'RESCHEDULED' || r.status === 'CANCELLED') return 'changed';
+  if (['REROUTED', 'RESCHEDULED', 'CANCELLED'].includes(r.status)) return 'changed';
   const t = Date.parse(r.launch_at);
   return Number.isFinite(t) && t < now ? 'past' : 'upcoming';
+}
+
+// chatThread(telegram_log rows, C14) -> the ops group as the console shows it, oldest first: AirGuard's messages, each
+// with its latest text (the edit that records an answer replaces a card's text and takes its buttons away), and the
+// officers' taps, each quoting the first line of the card it answered.
+function chatThread(rows) {
+  const byId = new Map(), out = [];
+  for (const r of [...rows].sort((a, b) => Number(a.id) - Number(b.id))) {
+    const m = r.message_id == null ? null : byId.get(String(r.message_id));
+    if (r.kind === 'tap') {
+      out.push({ type: 'tap', id: r.id, ts: r.ts, who: String(r.who || '').replace(/^human:/, ''), label: r.text, message_id: r.message_id,
+        quote: m ? String(m.first).split('\n')[0] : null });
+      continue;
+    }
+    if (r.kind === 'edit' && m) { Object.assign(m, { text: r.text, buttons: null, edited: r.ts }); continue; }
+    const msg = { type: 'bot', id: r.id, ts: r.ts, workflow: r.workflow, message_id: r.message_id, text: r.text, first: r.text,
+      buttons: Array.isArray(r.buttons) && r.buttons.length ? r.buttons : null, edited: r.kind === 'edit' ? r.ts : null };
+    out.push(msg);
+    if (r.message_id != null) byId.set(String(r.message_id), msg);
+  }
+  return out;
 }
 
 // who wrote an agent_log line, for the log filters and colours
@@ -71,4 +93,4 @@ function localTimes(text, writtenAt, tz) {
   });
 }
 
-if (typeof module !== 'undefined') module.exports = { boardRows, column, logKind, localTimes, HOLD_LEVELS };
+if (typeof module !== 'undefined') module.exports = { boardRows, column, chatThread, logKind, localTimes, HOLD_LEVELS };

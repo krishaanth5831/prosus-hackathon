@@ -2,7 +2,7 @@
 // Owner: Krish (see CLAUDE.md)
 // AirGuard ops console: a zero-dependency local server.   npm run console   (= node features/console/server.js)
 //   --no-fleet          do not fly the simulated fleet
-//   --fleet-speed=N     the simulated drones fly N times faster than real time (default 1)
+//   --fleet-speed=N     the simulated drones fly N times faster than real time (default 1; the console switches 1, 10, 20)
 //   --mirror-real       simulated drones also degrade in cells with a live (real) incident
 // The browser gets only the public Supabase URL and anon key (select-only by RLS) and reads Supabase itself, live.
 // Everything else that needs a secret (n8n, Apify, Telegram, the drone and console tokens) stays in this process.
@@ -17,7 +17,7 @@ const { demoPlan } = require('./demoPlan.js');
 
 const HOST = '127.0.0.1';
 const JS = 'text/javascript; charset=utf-8';
-const FILES = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', JS], '/board.js': ['board.js', JS], '/geo.js': ['geo.js', JS] };
+const FILES = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', JS], '/board.js': ['board.js', JS], '/geo.js': ['geo.js', JS], '/route.js': ['route.js', JS] };
 const hosts = (port) => [`127.0.0.1:${port}`, `localhost:${port}`];
 const allowedHost = (host, port) => hosts(port).includes(String(host || '').toLowerCase());
 const sameOrigin = (origin, port) => hosts(port).some((h) => origin === `http://${h}`);
@@ -80,7 +80,12 @@ function main() {
       settle(() => cached('telegram', 60e3, async () => {
         const bot = `https://api.telegram.org/bot${E.TELEGRAM_BOT_TOKEN}`;
         const me = await cached('tg-me', 600e3, async () => (await getJson(`${bot}/getMe`)).result);
-        return telegramSummary(me, (await getJson(`${bot}/getWebhookInfo`)).result, Date.now());
+        const group = !E.TELEGRAM_CHAT_ID ? null : await cached('tg-group', 600e3, async () => {   // the ops group: title and size only
+          const q = `chat_id=${encodeURIComponent(E.TELEGRAM_CHAT_ID)}`;
+          const [chat, n] = await Promise.all([getJson(`${bot}/getChat?${q}`), getJson(`${bot}/getChatMemberCount?${q}`)]);
+          return { chat: chat.result, members: n.result };
+        }).catch(() => null);
+        return telegramSummary(me, (await getJson(`${bot}/getWebhookInfo`)).result, Date.now(), group && group.chat, group && group.members);
       })),
     ]);
     return { now: isoZ(now), nextCollect: nextCollect(now), n8n, apify, telegram,
@@ -108,7 +113,7 @@ function main() {
     try {
       const since = new Date(Date.now() - 48 * 3600e3).toISOString();
       const [sorties, decisions, sync] = await Promise.all([sbGet('sorties?select=*'),
-        sbGet(`decisions?select=id,ts,sortie_id,level,new_launch_at,human_answer,decided_by,reason&ts=gte.${since}&order=id.desc&limit=1000`),
+        sbGet(`decisions?select=id,ts,sortie_id,level,new_launch_at,new_cells,human_answer,decided_by,reason&ts=gte.${since}&order=id.desc&limit=1000`),
         sbGet('sheet_sync?select=synced_at')]);
       fleet.setSorties(boardRows(sorties, decisions, sync[0] && sync[0].synced_at));
       if (fleet.mirrorReal) fleet.setRealBad(await sbGet('cell_status?select=cell_id,state&state=in.(JAMMED,SPOOF)'));
@@ -169,6 +174,11 @@ function main() {
         if (!fleet) return json(409, { error: 'the simulated fleet is off (--no-fleet)' });
         fleet.setEffect(body.cell_id, body.kind);
         return json(200, { effects: [...fleet.effects].map(([cell_id, e]) => ({ cell_id, ...e })) });
+      }
+      if (pathname === '/api/fleet/speed') {
+        if (!fleet) return json(409, { error: 'the simulated fleet is off (--no-fleet)' });
+        try { fleet.setSpeed(body.speed); } catch (e) { return json(400, { error: e.message }); }
+        return json(200, { speed: fleet.speed });
       }
       if (pathname === '/api/demo') {
         if (!['load', 'remove', 'sync'].includes(body.op)) return json(400, { error: 'op must be load, remove or sync' });

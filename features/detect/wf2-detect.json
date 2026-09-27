@@ -226,6 +226,29 @@
         },
         "options": {}
       }
+    },
+    {
+      "id": "8e39c535-c057-4d46-9047-4f1d53ed7a0a",
+      "name": "Telegram log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "onError": "continueRegularOutput",
+      "position": [
+        1760,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into telegram_log (workflow, kind, message_id, text, buttons, who, ts)\nvalues ($1, $2, nullif($3, '')::bigint, $4, nullif($5, '')::jsonb, nullif($6, ''), coalesce(to_timestamp(nullif($7, '')::double precision), now()));",
+        "options": {
+          "queryReplacement": "={{ (r => ['WF2', 'message', String(r.message_id || ''), String(r.text || ''), r.reply_markup && r.reply_markup.inline_keyboard ? JSON.stringify(r.reply_markup.inline_keyboard.map((row) => row.map((b) => b.text))) : '', '', String(r.date || '')])($json.result || {}) }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
     }
   ],
   "connections": {
@@ -310,6 +333,17 @@
         [
           {
             "node": "Telegram MAY-LIFT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram MAY-LIFT": {
+      "main": [
+        [
+          {
+            "node": "Telegram log",
             "type": "main",
             "index": 0
           }

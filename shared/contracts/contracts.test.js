@@ -154,7 +154,7 @@ test('C5 sorties sheet', () => {
     ['sortie_id', 'unit', 'priority', 'launch_at', 'window_end', 'cells', 'status', 'decided_by', 'note']);
   assert.equal(rows.length, 10);
   const known = new Set(json('cell_status.sample.json').map((r) => r.cell_id));
-  const STATUS = ['PLANNED', 'RESCHEDULED', 'CANCELLED', 'HOLD', 'LAUNCH_APPROVED'];
+  const STATUS = ['PLANNED', 'RESCHEDULED', 'REROUTED', 'CANCELLED', 'HOLD', 'LAUNCH_APPROVED'];
   const seenPriority = new Set();
   for (const cols of rows) {
     assert.equal(cols.length, header.length, `row ${cols[0]} column count`);
@@ -177,7 +177,7 @@ test('C5 sorties sheet', () => {
 
 test('C7 Telegram callback_data', () => {
   const updates = json('telegram-callback.sample.json');
-  const RE = /^(?:[klf]\|[A-Za-z0-9-]+\|\d+|b[kf]\|\d+)$/;
+  const RE = /^(?:[klcf]\|[A-Za-z0-9-]+\|\d+|b[klcf]\|\d+)$/;
   const kinds = new Set();
   for (const u of updates) {
     const q = u.callback_query;
@@ -188,7 +188,7 @@ test('C7 Telegram callback_data', () => {
     assert.match(q.data, RE);
     kinds.add(q.data.split('|')[0]);
   }
-  assert.deepEqual([...kinds].sort(), ['bf', 'bk', 'f', 'k', 'l']);
+  assert.deepEqual([...kinds].sort(), ['bc', 'bf', 'bk', 'bl', 'c', 'f', 'k', 'l']);
   // worst case still fits: longest realistic sortie id + a large decision id
   assert.ok(Buffer.byteLength('f|S-2026-09-27-BORDER-SQN3-048|9007199254740991') <= 64);
 });

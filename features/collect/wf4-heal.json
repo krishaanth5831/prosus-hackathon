@@ -603,6 +603,29 @@
           "name": "AirGuard Postgres"
         }
       }
+    },
+    {
+      "id": "6963d3e3-7ca4-48e9-ac4a-6a83d7e5ac1c",
+      "name": "Telegram log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "onError": "continueRegularOutput",
+      "position": [
+        1800,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into telegram_log (workflow, kind, message_id, text, buttons, who, ts)\nvalues ($1, $2, nullif($3, '')::bigint, $4, nullif($5, '')::jsonb, nullif($6, ''), coalesce(to_timestamp(nullif($7, '')::double precision), now()));",
+        "options": {
+          "queryReplacement": "={{ (r => ['WF4', 'message', String(r.message_id || ''), String(r.text || ''), r.reply_markup && r.reply_markup.inline_keyboard ? JSON.stringify(r.reply_markup.inline_keyboard.map((row) => row.map((b) => b.text))) : '', '', String(r.date || '')])($json.result || {}) }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
     }
   ],
   "connections": {
@@ -775,6 +798,39 @@
         [
           {
             "node": "Log fresh",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram failure": {
+      "main": [
+        [
+          {
+            "node": "Telegram log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Apify failure": {
+      "main": [
+        [
+          {
+            "node": "Telegram log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram stale": {
+      "main": [
+        [
+          {
+            "node": "Telegram log",
             "type": "main",
             "index": 0
           }

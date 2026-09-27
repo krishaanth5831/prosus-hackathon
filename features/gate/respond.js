@@ -4,9 +4,12 @@
 // Telegram text is HTML (parse_mode HTML) in local time; the sheet and the log stay in UTC.
 
 const TZ = 'Europe/Amsterdam';
-const C7 = /^(?:([klf])\|([A-Za-z0-9-]+)\|(\d+)|(b[kf])\|(\d+))$/;
-const ANSWER = { k: 'keep', l: 'launch', f: 'false_alarm', bk: 'keep', bf: 'false_alarm' };
-const STATUS = { keep: 'HOLD', launch: 'LAUNCH_APPROVED', false_alarm: 'PLANNED' };
+// A card asks Hold / Launch anyway / Cancel (k l c; batch bk bl bc). f and bf (False alarm) are only on cards sent
+// before that, and still work.
+const C7 = /^(?:([klcf])\|([A-Za-z0-9-]+)\|(\d+)|(b[klcf])\|(\d+))$/;
+const ANSWER = { k: 'keep', l: 'launch', c: 'cancel', f: 'false_alarm', bk: 'keep', bl: 'launch', bc: 'cancel', bf: 'false_alarm' };
+const STATUS = { keep: 'HOLD', launch: 'LAUNCH_APPROVED', cancel: 'CANCELLED', false_alarm: 'PLANNED' };
+const LABEL = { keep: 'Hold', launch: 'Launch anyway', cancel: 'Cancel', false_alarm: 'False alarm' };
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const local = (t) => new Date(t).toLocaleTimeString('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
 const utc = (t) => new Date(t).toISOString().slice(11, 16);
@@ -19,6 +22,7 @@ function parseTap(update) {
   const name = String((q.from && (q.from.first_name || q.from.username)) || '')
     .replace(/[^\p{L}\p{N} ._-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 40) || 'officer';
   const t = { valid: !!m, kind, answer: kind ? ANSWER[kind] : null, batch: !!kind && kind[0] === 'b',
+    label: kind ? `${LABEL[ANSWER[kind]]}${kind[0] === 'b' ? ' (all)' : ''}` : 'an unknown button',
     sortie_id: (m && m[2]) || null, decision_id: (m && m[3]) || null, incident_id: (m && m[5]) || null,
     name, who: `human:${name}`, callback_id: q.id ?? null, chat_id: q.message?.chat?.id ?? null,
     message_id: q.message?.message_id ?? null, message_text: q.message?.text ?? '' };
@@ -44,13 +48,16 @@ function outcome(t, rows, now = new Date()) {
   const sheet = got.map((r) => ({ sortie_id: r.sortie_id, status: STATUS[t.answer], decided_by: t.who, note: {
     keep: `HOLD kept by ${t.name} at ${at}: ${r.reason}`,
     launch: `launch approved by ${t.name} at ${at} despite: ${r.reason}`,
+    cancel: `cancelled by ${t.name} at ${at}: ${r.reason}`,
     false_alarm: `false alarm (${t.name}, ${at}): ${r.reason}`,
   }[t.answer] }));
   const log = got.map((r) => ({ workflow: 'WF6', ...{
-    keep: { action: `KEEP HOLD ${r.sortie_id}`, reason: `${t.who} tapped Keep HOLD: ${r.reason}`,
+    keep: { action: `KEEP HOLD ${r.sortie_id}`, reason: `${t.who} tapped ${t.label}: ${r.reason}`,
       outcome: `sheet stays HOLD, decision #${r.id} answered` },
-    launch: { action: `APPROVE LAUNCH ${r.sortie_id}`, reason: `${t.who} tapped Launch anyway: ${r.reason}`,
+    launch: { action: `APPROVE LAUNCH ${r.sortie_id}`, reason: `${t.who} tapped ${t.label}: ${r.reason}`,
       outcome: 'sheet LAUNCH_APPROVED by a human; the agent never approves a launch' },
+    cancel: { action: `CANCEL ${r.sortie_id}`, reason: `${t.who} tapped ${t.label}: ${r.reason}`,
+      outcome: 'sheet CANCELLED by a human' },
     false_alarm: { action: `MARK FALSE ALARM ${r.sortie_id}`, reason: `${t.who} marked it a false alarm: ${r.reason}`,
       outcome: 'sheet PLANNED, the gate checks it again every cycle' },
   }[t.answer] }));
@@ -62,9 +69,11 @@ function outcome(t, rows, now = new Date()) {
   const more = raised ? ` Cell ${raised.cell_id} threshold now ${Number(raised.new_threshold).toFixed(2)}, `
     + `incident ${raised.incident_id} closed.` : '';
   return { sheet, log,
-    answer: { keep: `Kept on HOLD: ${what}`, launch: `Launch approved: ${what}`, false_alarm: `False alarm: ${what} back to PLANNED` }[t.answer],
+    answer: { keep: `Kept on HOLD: ${what}`, launch: `Launch approved: ${what}`, cancel: `Cancelled: ${what}`,
+      false_alarm: `False alarm: ${what} back to PLANNED` }[t.answer],
     edit: card({ keep: `✋ ${t.batch ? `All ${n} kept` : 'Kept'} on HOLD by ${t.name} at ${here}.`,
       launch: `🚀 Launch approved by ${t.name} at ${here}. The agent did not approve it.`,
+      cancel: `✖️ ${t.batch ? `All ${n} cancelled` : 'Cancelled'} by ${t.name} at ${here}.`,
       false_alarm: `↩️ False alarm by ${t.name} at ${here}: ${what} back to PLANNED.${more}` }[t.answer]) };
 }
 

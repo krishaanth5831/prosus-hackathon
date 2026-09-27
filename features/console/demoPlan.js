@@ -2,6 +2,8 @@
 // demoPlan(now) -> 16 fictional C5 sortie rows (T-301..T-316) along the real eastern-flank borders, for the ops
 // console's "Load demo plan" button. Four launched in the last 40 min (the simulated fleet flies them), twelve
 // launch over the next 11 h (the gate checks them every cycle). Test ids per C11, unit names say DEMO.
+// The story: a simulated jammer on Lazdijai 54.0_23.5 is felt by T-301's drone, and the gate then reroutes T-305
+// (FYI), asks the officer about priority T-306 (card) and reschedules T-307 (FYI). Three of twelve: no brake.
 const HOUR = 3600e3, MIN = 60e3;
 const WINDOW_MIN = { priority: 60, routine: 360, low: 180 };      // as gen-sorties.js: window_end = launch + this
 const AREAS = [
@@ -14,21 +16,22 @@ const AREAS = [
   { unit: 'LT Border Guard · Ignalina (DEMO)', cells: ['55.0_26.0', '55.5_26.5'] },        // Belarus–Latvia
   { unit: 'EE Border Guard · Värska (DEMO)', cells: ['57.5_27.0', '58.0_27.0'] },          // south of Lake Peipus
 ];
-// [minutes from now, area index, priority, both cells?]
+// [minutes from now, area index, priority, cells: both | first | second]
 const PLAN = [
-  [-35, 0, 'routine', true], [-22, 1, 'priority', true], [-12, 2, 'low', false], [-4, 3, 'routine', true],
-  [25, 4, 'priority', true], [50, 0, 'routine', false], [75, 5, 'low', true], [100, 6, 'routine', true],
-  [140, 7, 'priority', true], [180, 1, 'routine', false], [240, 3, 'low', true], [300, 2, 'routine', true],
-  [360, 0, 'priority', true], [450, 4, 'routine', false], [540, 7, 'low', true], [660, 5, 'routine', true],
+  [-35, 0, 'routine', 'both'], [-22, 1, 'priority', 'both'], [-12, 2, 'low', 'first'], [-4, 3, 'routine', 'both'],
+  [25, 0, 'routine', 'both'], [50, 0, 'priority', 'second'], [75, 0, 'routine', 'second'], [100, 6, 'routine', 'both'],
+  [140, 7, 'priority', 'both'], [180, 1, 'routine', 'first'], [240, 3, 'low', 'both'], [300, 2, 'routine', 'both'],
+  [360, 4, 'priority', 'both'], [450, 4, 'routine', 'first'], [540, 7, 'low', 'both'], [660, 5, 'routine', 'both'],
 ];
+const PICK = { both: (c) => c, first: (c) => c.slice(0, 1), second: (c) => c.slice(1) };
 const iso = (t) => new Date(t).toISOString().replace('.000Z', 'Z');
 
 function demoPlan(now = new Date()) {
   const t0 = Math.floor(now.getTime() / MIN) * MIN;
-  return PLAN.map(([m, a, priority, both], i) => {
+  return PLAN.map(([m, a, priority, which], i) => {
     const launch = t0 + m * MIN, area = AREAS[a];
     return { sortie_id: `T-${301 + i}`, unit: area.unit, priority, launch_at: iso(launch),
-      window_end: iso(launch + WINDOW_MIN[priority] * MIN), cells: (both ? area.cells : area.cells.slice(0, 1)).join(';'),
+      window_end: iso(launch + WINDOW_MIN[priority] * MIN), cells: PICK[which](area.cells).join(';'),
       status: 'PLANNED', decided_by: '', note: 'DEMO sortie (fictional)' };
   });
 }

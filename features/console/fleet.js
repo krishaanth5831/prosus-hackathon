@@ -7,56 +7,22 @@
 // GNSS degrades only in cells where the user placed a simulated jammer or spoofer (and, if mirrorReal is on,
 // in cells with a live incident). Real aircraft data never turns into simulated drone evidence by default.
 const { droneReport } = require('../collect/droneReport.js');
+const { CELL_RE, routeFor, positionAt } = require('./route.js');
 
 const SPEED = 25;                 // m/s cruise
+const SPEEDS = [1, 10, 20];       // the console's speed switch: real time, 10x, 20x. Only the drones fly faster.
 const FLIGHT_MIN = 60;            // a patrol lasts 60 min
 const REPORT_MIN = 15;            // a leg report at least every 15 min (every report is an n8n execution)
 const EARLY_SAMPLES = 15;         // a bad spell is reported after 15 samples (30 s at one sample per 2 s)
 const MIN_GAP_MIN = 5;            // at most one report per drone every 5 min, except the first of a new bad spell
 const SPELL_COOLDOWN_MIN = 10;    // ... and that one at most every 10 min per cell (a fast drone crosses it again and again)
-const FLYABLE = ['PLANNED', 'RESCHEDULED', 'LAUNCH_APPROVED'];
+const FLYABLE = ['PLANNED', 'RESCHEDULED', 'REROUTED', 'LAUNCH_APPROVED'];
 const KEPT_DOWN = ['HOLD', 'CANCELLED'];
 const SOURCE = 'sim:border-patrol-mavlink';
 const POOL = Array.from({ length: 16 }, (_, i) => `BG-UAV-${String(i + 1).padStart(2, '0')}`);
-const CELL_RE = /^-?\d+\.\d_-?\d+\.\d$/;
 
 const cellId = (lat, lon) => `${(Math.floor(lat / 0.5) * 0.5).toFixed(1)}_${(Math.floor(lon / 0.5) * 0.5).toFixed(1)}`;
-const corner = (id) => id.split('_').map(Number);
-const rad = (d) => d * Math.PI / 180;
-const metres = (a, b) => Math.hypot((b[0] - a[0]) * 110540, (b[1] - a[1]) * 111320 * Math.cos(rad((a[0] + b[0]) / 2)));
-const bearing = (a, b) => (Math.atan2((b[1] - a[1]) * Math.cos(rad((a[0] + b[0]) / 2)), b[0] - a[0]) * 180 / Math.PI + 360) % 360;
 const isoZ = (t) => new Date(t).toISOString().replace('.000Z', 'Z');
-
-// routeFor(cells) -> { points: [[lat, lon]...], loop }: a box inside a single cell, else a line through the cell centres
-function routeFor(cells) {
-  const ids = cells.filter((c) => CELL_RE.test(c));
-  if (!ids.length) return { points: [], loop: false };
-  if (ids.length === 1) {
-    const [la, lo] = corner(ids[0]);
-    return { points: [[la + 0.12, lo + 0.1], [la + 0.12, lo + 0.4], [la + 0.38, lo + 0.4], [la + 0.38, lo + 0.1]], loop: true };
-  }
-  return { points: ids.map((c) => { const [la, lo] = corner(c); return [la + 0.25, lo + 0.25]; }), loop: false };
-}
-
-// positionAt(route, metres flown) -> { lat, lon, hdg }: loops a box, goes back and forth along a line
-function positionAt({ points, loop }, d) {
-  const pts = loop ? [...points, points[0]] : points;
-  const legs = [];
-  for (let i = 0; i < pts.length - 1; i++) legs.push({ a: pts[i], b: pts[i + 1], len: metres(pts[i], pts[i + 1]) });
-  const total = legs.reduce((s, l) => s + l.len, 0);
-  if (!total) return { lat: pts[0][0], lon: pts[0][1], hdg: 0 };
-  let u = loop ? d % total : d % (2 * total), back = false;
-  if (!loop && u > total) { u = 2 * total - u; back = true; }       // on the way back: same point, opposite heading
-  for (const l of legs) {
-    if (u <= l.len) {
-      const f = u / l.len, hdg = bearing(l.a, l.b);
-      return { lat: l.a[0] + (l.b[0] - l.a[0]) * f, lon: l.a[1] + (l.b[1] - l.a[1]) * f, hdg: back ? (hdg + 180) % 360 : hdg };
-    }
-    u -= l.len;
-  }
-  const last = pts[pts.length - 1];
-  return { lat: last[0], lon: last[1], hdg: 0 };
-}
 
 // gnss(environment, rng) -> one GNSS health sample (h_acc in metres here, mm in the C12 report)
 function gnss(env, rng) {
@@ -72,13 +38,22 @@ const airborne = (sorties, now) => sorties.filter((s) => FLYABLE.includes(s.stat
 const keptDown = (sorties, now) => sorties.filter((s) => KEPT_DOWN.includes(s.status) && inWindow(s, now));
 
 class Fleet {
-  // post(report) -> Promise: sends a C12 report to WF7. speed multiplies the cruise speed (1 = real time).
+  // post(report) -> Promise: sends a C12 report to WF7. speed multiplies how fast the drones move (1 = real time);
+  // sorties still launch and land on their sheet times, and the pipeline runs on its real 5-minute cycle.
   constructor({ post, log = () => {}, rng = Math.random, speed = 1, mirrorReal = false } = {}) {
     Object.assign(this, { post, log, rng, speed, mirrorReal });
     this.sorties = []; this.effects = new Map(); this.realBad = new Map(); this.flights = new Map();
     this.events = []; this.reports = { sent: 0, failed: 0, last: null };
   }
   setSorties(rows) { this.sorties = rows; }
+  // setSpeed(n): the console's speed switch. Every drone flies on from where it is, at the new speed.
+  setSpeed(n, now = Date.now()) {
+    if (!SPEEDS.includes(n)) throw new Error(`speed must be ${SPEEDS.join(', ')}`);
+    for (const f of this.flights.values()) this.advance(f, now);
+    this.speed = n;
+    this.event(null, `SIMULATION SPEED ${n === 1 ? 'REAL TIME' : `${n}×`}`, 'set from the ops console: only the simulated drones fly faster; sorties and the pipeline keep real time', now);
+  }
+  advance(f, now) { f.dist += SPEED * this.speed * Math.max(0, now - f.at) / 1000; f.at = now; }
   setRealBad(cells) { this.realBad = new Map(cells.map((c) => [c.cell_id, c.state])); }
   setEffect(cell, kind) {
     if (!CELL_RE.test(cell || '')) throw new Error('cell_id must look like 54.0_23.0');
@@ -107,7 +82,7 @@ class Fleet {
       const start = [...s.sortie_id].reduce((h, c) => h * 31 + c.charCodeAt(0), 7) % POOL.length;
       const drone = [...POOL.slice(start), ...POOL.slice(0, start)].find((d) => !used.has(d)) || `BG-UAV-X${this.flights.size}`;
       const f = { sortie_id: s.sortie_id, drone_id: drone, unit: s.unit, priority: s.priority, launch: Date.parse(s.launch_at),
-        route: routeFor(s.cellList), events: [], seg: null, env: 'NORMAL', spell: null, spells: new Map(), lastReport: null };
+        route: routeFor(s.cellList), dist: SPEED * this.speed * Math.max(0, now - Date.parse(s.launch_at)) / 1000, at: now, events: [], seg: null, env: 'NORMAL', spell: null, spells: new Map(), lastReport: null };
       this.flights.set(s.sortie_id, f);
       this.event(f, `TAKEOFF ${drone}`, `sortie ${s.sortie_id} · ${s.priority} · ${s.cellList.join(', ')}`, now);
     }
@@ -118,7 +93,8 @@ class Fleet {
       effects: [...this.effects].map(([cell_id, e]) => ({ cell_id, ...e })), reports: this.reports, events: this.events.slice(0, 40) };
   }
   fly(f, now) {
-    const elapsed = now - f.launch, pos = positionAt(f.route, SPEED * this.speed * elapsed / 1000);
+    this.advance(f, now);
+    const elapsed = now - f.launch, pos = positionAt(f.route, f.dist);
     const cell = cellId(pos.lat, pos.lon), env = this.environment(cell), g = gnss(env, this.rng);
     const bad = g.fix_type < 3 || g.h_acc > 10 || g.jamming_state >= 2, spoofed = g.spoofing_state >= 2;
     const ghost = spoofed ? [pos.lat - 0.3, pos.lon + 0.45] : null;       // where the spoofed receiver claims to be
@@ -145,7 +121,7 @@ class Fleet {
       alt: Math.round(180 + 60 * Math.sin(elapsed / 90e3)), spd: +(SPEED + Math.sin(elapsed / 20e3)).toFixed(1), hdg: Math.round(pos.hdg),
       batt: Math.max(20, Math.round(100 - 70 * mins / FLIGHT_MIN)), rssi: Math.round(-52 - 12 * Math.abs(Math.sin(elapsed / 300e3)) - this.rng() * 4),
       fix_type: g.fix_type, sats: g.satellites_visible, h_acc: +g.h_acc.toFixed(1), jam: g.jamming_state, spoof: g.spoofing_state,
-      gap: Math.round(g.gap), nav, cell, env, ghost, airborne_min: Math.floor(mins), route: f.route, events: f.events.slice(0, 20) };
+      gap: Math.round(g.gap), nav, cell, env, ghost, airborne_min: Math.floor(mins), route: f.route, dist: Math.round(f.dist), events: f.events.slice(0, 20) };
   }
   // flush: send the leg segment as a C12 report (droneReport is what WF7 runs; used here only to name the verdict)
   flush(f, why, now, urgent = false) {
@@ -163,4 +139,4 @@ class Fleet {
   }
 }
 
-module.exports = { Fleet, routeFor, positionAt, gnss, airborne, keptDown, cellId, SOURCE, FLIGHT_MIN };
+module.exports = { Fleet, gnss, airborne, keptDown, cellId, SOURCE, FLIGHT_MIN, SPEEDS };
