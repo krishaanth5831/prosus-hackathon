@@ -8,7 +8,9 @@
     "incident_id": 41,
     "severity": "high",
     "evidence": "5/8 aircraft degraded, 2 checks in a row",
-    "state": "JAMMED"
+    "state": "JAMMED",
+    "drone_ts": null,
+    "drone_evidence": null
   },
   {
     "cell_id": "55.0_20.5",
@@ -19,7 +21,9 @@
     "incident_id": 38,
     "severity": "medium",
     "evidence": "4/11 aircraft degraded, 2 checks in a row",
-    "state": "JAMMED"
+    "state": "JAMMED",
+    "drone_ts": null,
+    "drone_evidence": null
   },
   {
     "cell_id": "59.5_25.0",
@@ -30,7 +34,9 @@
     "incident_id": 42,
     "severity": "high",
     "evidence": "2 aircraft with GPS/baro altitude gap > 1500 ft, 2 checks in a row",
-    "state": "SPOOF"
+    "state": "SPOOF",
+    "drone_ts": null,
+    "drone_evidence": null
   },
   {
     "cell_id": "56.5_21.0",
@@ -41,7 +47,9 @@
     "incident_id": null,
     "severity": null,
     "evidence": null,
-    "state": "NO_KNOWN_ISSUE"
+    "state": "NO_KNOWN_ISSUE",
+    "drone_ts": null,
+    "drone_evidence": null
   },
   {
     "cell_id": "55.0_21.0",
@@ -52,7 +60,9 @@
     "incident_id": null,
     "severity": null,
     "evidence": null,
-    "state": "UNKNOWN"
+    "state": "UNKNOWN",
+    "drone_ts": null,
+    "drone_evidence": null
   },
   {
     "cell_id": "53.5_-0.5",
@@ -63,6 +73,21 @@
     "incident_id": null,
     "severity": null,
     "evidence": null,
-    "state": "UNKNOWN"
+    "state": "UNKNOWN",
+    "drone_ts": null,
+    "drone_evidence": null
+  },
+  {
+    "cell_id": "54.0_23.5",
+    "ts": null,
+    "n_total": null,
+    "n_degraded": null,
+    "ratio": null,
+    "incident_id": null,
+    "severity": null,
+    "evidence": null,
+    "state": "NO_KNOWN_ISSUE",
+    "drone_ts": "2026-09-26T20:58:00.000Z",
+    "drone_evidence": "SIMULATED drone BG-UAV-07 on T-101: 0/120 GNSS samples degraded, no jamming or spoofing flag"
   }
 ]

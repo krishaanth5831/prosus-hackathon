@@ -35,9 +35,12 @@ Never edit a merged migration. A schema change = ask Krish → he adds `00N_*.sq
 
 ## C4 cell_status view
 
-Columns: `cell_id, ts, n_total, n_degraded, ratio, incident_id, severity, evidence, state`.
+Columns: `cell_id, ts, n_total, n_degraded, ratio, incident_id, severity, evidence, state, drone_ts, drone_evidence`.
 `state ∈ JAMMED | SPOOF | UNKNOWN | NO_KNOWN_ISSUE`.
 **A cell missing from the view = UNKNOWN.**
+
+`drone_ts, drone_evidence`: the latest drone report (C12) for the cell from the last 60 min, else null.
+A NORMAL drone report lifts a cell with fewer than 3 aircraft from UNKNOWN to NO_KNOWN_ISSUE. It never outranks an incident.
 
 Fixture: `cell_status.sample.json`.
 
@@ -89,18 +92,18 @@ Fixture: `telegram-callback.sample.json`.
 
 ## C8 agent_log
 
-- `workflow ∈ WF1..WF6`
+- `workflow ∈ WF1..WF7`
 - `action` = UPPERCASE verb + object (`"HOLD S-017"`)
 - `reason` = plain English + evidence (`"JAMMED 54.5_20.5 high: 9/14 aircraft degraded, 2 checks in a row"`)
 - `outcome`
 
 ## C9 n8n
 
-- Workflow names: `AirGuard WF1 Collect`, `AirGuard WF2 Detect`, `AirGuard WF3 Gate`, `AirGuard WF4 Heal`, `AirGuard WF5 Report`, `AirGuard WF6 Respond`.
-- Webhook paths: `airguard-apify` (WF1), `airguard-apify-failed` (WF4).
+- Workflow names: `AirGuard WF1 Collect`, `AirGuard WF2 Detect`, `AirGuard WF3 Gate`, `AirGuard WF4 Heal`, `AirGuard WF5 Report`, `AirGuard WF6 Respond`, `AirGuard WF7 Telemetry`.
+- Webhook paths: `airguard-apify` (WF1), `airguard-apify-failed` (WF4), `airguard-drone` (WF7, header `X-AirGuard-Token` required).
 - WF2 and WF3 start with an Execute Workflow Trigger named **"Start"**.
 - The first node after every trigger is a Set node **"Config"** with the non-secret config (chat id, allowlist, sheet id).
-- Secrets only in credentials `AirGuard Postgres`, `AirGuard Telegram`, `AirGuard Sheets`, `AirGuard Apify`, `AirGuard LLM`.
+- Secrets only in credentials `AirGuard Postgres`, `AirGuard Telegram`, `AirGuard Sheets`, `AirGuard Apify`, `AirGuard LLM`, `AirGuard Drone Intake`.
 - Error workflow = WF4.
 - Exports live in the owner's feature folder as `wfN-<name>.json`, credential IDs removed.
 
@@ -113,3 +116,23 @@ Timestamps are UTC ISO 8601 (`2026-09-26T21:05:00Z`). Local time only in human-f
 - Sortie ids `T-*`.
 - Test cells: Person A `89.5_178.5`, Person B `89.5_179.0`, Person C `89.5_179.5`.
 - Delete your test rows afterwards. Never touch another person's test cell.
+
+## C12 Drone report
+
+A drone's GNSS health for one sortie, POSTed by the ground station (or `features/collect/sim-drone.js`) to WF7:
+
+```
+{ source, drone_id, sortie_id,
+  legs:    [{ cell_id, from, to }],                                   // the PLANNED route, in time order
+  samples: [{ t, fix_type, satellites_visible, h_acc, jamming_state, spoofing_state, lat, lon }] }
+```
+
+- Field names follow MAVLink `GPS_RAW_INT` (`fix_type`, `satellites_visible`, `h_acc` in mm) and PX4 `SensorGps`
+  (`jamming_state` 0 unknown · 1 ok · 2 warning · 3 critical, `spoofing_state` 0 unknown · 1 none · 2 indicated · 3 multiple).
+- A sample counts for the leg whose `from..to` holds `t`. **`lat`/`lon` are never used to place it**: a spoofed drone reports the wrong place.
+- Per leg with 10+ samples: degraded = `fix_type < 3` or `h_acc > 10000` or `jamming_state >= 2`; spoof = `spoofing_state >= 2`.
+  Verdict `SPOOF` if spoof ≥ 20 %, else `JAMMED` if degraded ≥ 30 %, else `NORMAL`. One `drone_reports` row per leg (`db/migrations/002`).
+- `source` starting with `sim:` is simulated. Every evidence string from it starts with `SIMULATED`.
+- WF2 opens an incident on one JAMMED/SPOOF report from the last 60 min. Confidence is `medium (drone only)`, or `high (ADS-B + drone)` when both sensors agree.
+
+Fixture: `drone-report.sample.json`.
