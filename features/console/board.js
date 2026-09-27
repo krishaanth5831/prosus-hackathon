@@ -51,4 +51,24 @@ function logKind(workflow) {
   return { WF2: 'agent', WF3: 'agent', WF6: 'officer', WF7: 'drone', WF8: 'console' }[workflow] || 'pipeline';
 }
 
-if (typeof module !== 'undefined') module.exports = { boardRows, column, logKind, HOLD_LEVELS };
+// localTimes(text, when the text was written, time zone) -> the same text with its "HH:MM UTC" and
+// "HH:MM→HH:MM UTC" times shown in that zone (e.g. "03:00→05:00 CEST"). Stored text stays UTC (CLAUDE.md);
+// this is for the screen only. Each time is placed on the day nearest to when the text was written.
+function localTimes(text, writtenAt, tz) {
+  const ref = Date.parse(writtenAt);
+  if (!text || !Number.isFinite(ref)) return text;
+  const hm = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
+  const zoneOf = (d) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, timeZoneName: 'short' }).formatToParts(d).find((p) => p.type === 'timeZoneName').value;
+  const at = (h, m) => {
+    const d = new Date(ref); d.setUTCHours(Number(h), Number(m), 0, 0);
+    if (d - ref > 12 * 3600e3) d.setUTCDate(d.getUTCDate() - 1);
+    if (ref - d > 12 * 3600e3) d.setUTCDate(d.getUTCDate() + 1);
+    return d;
+  };
+  return String(text).replace(/\b(\d{2}):(\d{2})(?:→(\d{2}):(\d{2}))? UTC\b/g, (m, h1, m1, h2, m2) => {
+    const a = at(h1, m1), b = h2 ? at(h2, m2) : null;
+    return `${hm.format(a)}${b ? `→${hm.format(b)}` : ''} ${zoneOf(b || a)}`;
+  });
+}
+
+if (typeof module !== 'undefined') module.exports = { boardRows, column, logKind, localTimes, HOLD_LEVELS };

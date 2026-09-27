@@ -12,6 +12,8 @@ const SPEED = 25;                 // m/s cruise
 const FLIGHT_MIN = 60;            // a patrol lasts 60 min
 const REPORT_MIN = 15;            // a leg report at least every 15 min (every report is an n8n execution)
 const EARLY_SAMPLES = 15;         // a bad spell is reported after 15 samples (30 s at one sample per 2 s)
+const MIN_GAP_MIN = 5;            // at most one report per drone every 5 min, except the first of a new bad spell
+const SPELL_COOLDOWN_MIN = 10;    // ... and that one at most every 10 min per cell (a fast drone crosses it again and again)
 const FLYABLE = ['PLANNED', 'RESCHEDULED', 'LAUNCH_APPROVED'];
 const KEPT_DOWN = ['HOLD', 'CANCELLED'];
 const SOURCE = 'sim:border-patrol-mavlink';
@@ -105,7 +107,7 @@ class Fleet {
       const start = [...s.sortie_id].reduce((h, c) => h * 31 + c.charCodeAt(0), 7) % POOL.length;
       const drone = [...POOL.slice(start), ...POOL.slice(0, start)].find((d) => !used.has(d)) || `BG-UAV-X${this.flights.size}`;
       const f = { sortie_id: s.sortie_id, drone_id: drone, unit: s.unit, priority: s.priority, launch: Date.parse(s.launch_at),
-        route: routeFor(s.cellList), events: [], seg: null, env: 'NORMAL', spell: null };
+        route: routeFor(s.cellList), events: [], seg: null, env: 'NORMAL', spell: null, spells: new Map(), lastReport: null };
       this.flights.set(s.sortie_id, f);
       this.event(f, `TAKEOFF ${drone}`, `sortie ${s.sortie_id} · ${s.priority} · ${s.cellList.join(', ')}`, now);
     }
@@ -132,20 +134,25 @@ class Fleet {
     f.seg.samples.push({ t: isoZ(now), fix_type: g.fix_type, satellites_visible: g.satellites_visible, h_acc: Math.round(g.h_acc * 1000),
       jamming_state: g.jamming_state, spoofing_state: g.spoofing_state, lat: +(ghost ? ghost[0] : pos.lat).toFixed(6), lon: +(ghost ? ghost[1] : pos.lon).toFixed(6) });
     const spell = env === 'NORMAL' ? null : `${cell}|${env}`;
-    if (spell && f.spell !== spell && f.seg.samples.length >= EARLY_SAMPLES) { f.spell = spell; this.flush(f, 'bad GNSS, reported early', now); f.seg = { cell, samples: [] }; }
+    const cooled = spell && !(now - (f.spells.get(spell) || -Infinity) < SPELL_COOLDOWN_MIN * 60e3);
+    if (spell && f.spell !== spell && cooled && f.seg.samples.length >= EARLY_SAMPLES) {
+      f.spell = spell; f.spells.set(spell, now); this.flush(f, 'bad GNSS, reported early', now, true); f.seg = { cell, samples: [] };
+    }
     else if (Date.parse(f.seg.samples[0].t) <= now - REPORT_MIN * 60e3) { this.flush(f, 'periodic', now); f.seg = { cell, samples: [] }; }
     if (!spell) f.spell = null;
     const mins = elapsed / 60e3;
     return { drone_id: f.drone_id, sortie_id: f.sortie_id, unit: f.unit, priority: f.priority, lat: +pos.lat.toFixed(5), lon: +pos.lon.toFixed(5),
-      alt: Math.round(180 + 60 * Math.sin(elapsed / 90e3)), spd: +(SPEED * this.speed + Math.sin(elapsed / 20e3)).toFixed(1), hdg: Math.round(pos.hdg),
+      alt: Math.round(180 + 60 * Math.sin(elapsed / 90e3)), spd: +(SPEED + Math.sin(elapsed / 20e3)).toFixed(1), hdg: Math.round(pos.hdg),
       batt: Math.max(20, Math.round(100 - 70 * mins / FLIGHT_MIN)), rssi: Math.round(-52 - 12 * Math.abs(Math.sin(elapsed / 300e3)) - this.rng() * 4),
       fix_type: g.fix_type, sats: g.satellites_visible, h_acc: +g.h_acc.toFixed(1), jam: g.jamming_state, spoof: g.spoofing_state,
       gap: Math.round(g.gap), nav, cell, env, ghost, airborne_min: Math.floor(mins), route: f.route, events: f.events.slice(0, 20) };
   }
   // flush: send the leg segment as a C12 report (droneReport is what WF7 runs; used here only to name the verdict)
-  flush(f, why, now) {
+  flush(f, why, now, urgent = false) {
     const seg = f.seg;
     if (!seg || seg.samples.length < 10) return;
+    if (!urgent && f.lastReport !== null && now - f.lastReport < MIN_GAP_MIN * 60e3) return;   // every report is an n8n execution
+    f.lastReport = now;
     const report = { source: SOURCE, drone_id: f.drone_id, sortie_id: f.sortie_id,
       legs: [{ cell_id: seg.cell, from: seg.samples[0].t, to: seg.samples[seg.samples.length - 1].t }], samples: seg.samples };
     const r = droneReport(report, now), row = r.ok ? r.rows[0] : null;

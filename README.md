@@ -80,7 +80,7 @@ The agent **acts** on sorties launching within 2 h and **watches** sorties launc
 
 ### Ops console
 
-`npm run console`, then open http://localhost:8787 (it listens on 127.0.0.1 only). The unit's operations screen, live:
+`npm run console`, then open http://localhost:8787 (it listens on 127.0.0.1 only). `npm run console:demo` flies the simulated drones 10× faster, so they visibly move at the default zoom. The unit's operations screen, live:
 
 - **Live airspace:** the eastern flank drawn from `features/console/geo.js`, locked to that region (you can zoom in, not out). Cells come from `cell_status`, aircraft from the last collect, drones from the simulated fleet. Click a drone for its telemetry, what its autopilot decided and what AirGuard decided. Click a cell for its evidence, or to place a simulated jammer or spoofer that only the simulated drones feel.
 - **Fleet, Sorties, Agent log, Pipeline:** the drones in the air and those kept on the ground; the Google Sheet (through its Supabase mirror) with the gate's latest decisions and the Telegram cards waiting for the officer; every `agent_log` line; the live state of Apify, n8n WF1–WF8, Supabase Realtime, the sheet mirror and the Telegram bot.
