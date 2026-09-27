@@ -9,15 +9,16 @@ const ANSWER_STATUS = { keep: 'HOLD', launch: 'LAUNCH_APPROVED', cancel: 'CANCEL
 const isoZ = (t) => (t ? new Date(t).toISOString().replace('.000Z', 'Z') : null);
 
 // boardRows(sorties: mirror rows, decisions: decisions rows, syncedAt: sheet_sync.synced_at) -> board rows
+// A decision belongs to the row whose launch it was about (old_launch_at, or new_launch_at after a reschedule): a test id
+// reused by a later demo plan never shows the earlier sortie's decisions.
 function boardRows(sorties, decisions, syncedAt) {
-  const latest = new Map();
-  for (const d of decisions) {
-    const p = latest.get(d.sortie_id);
-    if (!p || Number(d.id) > Number(p.id)) latest.set(d.sortie_id, d);
-  }
+  const byId = new Map();
+  for (const d of decisions) byId.set(d.sortie_id, [...(byId.get(d.sortie_id) || []), d]);
   const sync = Date.parse(syncedAt) || 0;
   return sorties.map((s) => {
-    const d = latest.get(s.sortie_id) || null;
+    const mine = (byId.get(s.sortie_id) || [])
+      .filter((x) => !x.old_launch_at || [isoZ(x.old_launch_at), isoZ(x.new_launch_at)].includes(isoZ(s.launch_at)));
+    const d = mine.reduce((p, x) => (!p || Number(x.id) > Number(p.id) ? x : p), null);
     let { status, launch_at: launchAt, decided_by: decidedBy, cells } = s;
     if (d && Date.parse(d.ts) > sync) {                       // the gate acted after the mirror read the sheet
       if (d.level === 'L1_REROUTE') { status = 'REROUTED'; cells = d.new_cells || cells; decidedBy = 'agent'; }

@@ -69,6 +69,17 @@ test('Telegram view: the group in order, a card answered by an edit loses its bu
   assert.deepEqual(open[0].buttons, [['Hold', 'Launch anyway', 'Cancel']], 'unanswered: the buttons are still there');
 });
 
+test('board: a test id reused by a later demo plan never shows the earlier sortie\'s decisions', () => {
+  const [again] = boardRows([row('T-305', { launch_at: '2026-09-27T10:08:00Z' })], [
+    { id: 7, ts: '2026-09-27T02:00:00Z', sortie_id: 'T-305', level: 'UNVERIFIED', old_launch_at: '2026-09-27T02:20:00+00:00', reason: 'the morning plan' },
+  ], SYNC);
+  assert.deepEqual([again.level, again.reason, again.decision], [null, '', null]);
+  const [moved] = boardRows([row('T-1', { launch_at: '2026-09-27T12:00:00Z', status: 'RESCHEDULED' })], [
+    { id: 8, ts: '2026-09-27T09:05:00Z', sortie_id: 'T-1', level: 'L1_RESCHEDULE', old_launch_at: '2026-09-27T10:00:00+00:00', new_launch_at: '2026-09-27T12:00:00+00:00', reason: 'moved' },
+  ], '2026-09-27T09:10:00Z');
+  assert.deepEqual([moved.level, moved.reason], ['L1_RESCHEDULE', 'moved'], 'after a reschedule the sheet holds the new launch');
+});
+
 test('board: columns and log kinds', () => {
   const now = Date.parse('2026-09-27T09:30:00Z');
   const [held, flying, moved, upcoming, past] = boardRows([row('T-1'), row('T-2', { launch_at: '2026-09-27T09:10:00Z' }), row('T-3'), row('T-4'),
