@@ -285,6 +285,8 @@ test('C14 telegram_log: the n8n parameters for a card, a text, an edit, a tap an
   assert.deepEqual(refused, ['WF6', 'tap', '51', 'a button', '', 'not on the allowlist', '']);
   for (const p of [run(sentParams('WF3'), card), refused]) assert.doesNotMatch(JSON.stringify(p), /100123|Mallory|999|\|T-306/, 'no chat id, user id, name or callback data');
   assert.deepEqual([...TG_SQL.matchAll(/\$(\d)/g)].map((m) => m[1]), ['1', '2', '3', '4', '5', '6', '7']);
+  const alert = run(sentParams('WF4'), { ok: true, result: { message_id: 8, date: 2, text: '⚠️ AirGuard: WF1 failed\nhttps://example.app.n8n.cloud/workflow/x/executions/9' } });
+  assert.equal(alert[3], '⚠️ AirGuard: WF1 failed\n[link]', 'no link reaches the anon-readable log');
 });
 
 test('C14: every Telegram message any workflow sends goes to its "Telegram log" node right away', () => {

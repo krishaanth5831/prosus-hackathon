@@ -618,7 +618,7 @@
         "operation": "executeQuery",
         "query": "insert into telegram_log (workflow, kind, message_id, text, buttons, who, ts)\nvalues ($1, $2, nullif($3, '')::bigint, $4, nullif($5, '')::jsonb, nullif($6, ''), coalesce(to_timestamp(nullif($7, '')::double precision), now()));",
         "options": {
-          "queryReplacement": "={{ (r => ['WF4', 'message', String(r.message_id || ''), String(r.text || ''), r.reply_markup && r.reply_markup.inline_keyboard ? JSON.stringify(r.reply_markup.inline_keyboard.map((row) => row.map((b) => b.text))) : '', '', String(r.date || '')])($json.result || {}) }}"
+          "queryReplacement": "={{ (r => ['WF4', 'message', String(r.message_id || ''), String(r.text || '').replace(/https?:\\/\\/\\S+/g, '[link]'), r.reply_markup && r.reply_markup.inline_keyboard ? JSON.stringify(r.reply_markup.inline_keyboard.map((row) => row.map((b) => b.text))) : '', '', String(r.date || '')])($json.result || {}) }}"
         }
       },
       "credentials": {
