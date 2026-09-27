@@ -11,13 +11,13 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { boardRows } = require('./board.js');
-const { n8nSummary, apifySummary, telegramSummary, nextCollect } = require('./status.js');
+const { n8nSummary, apifySummary, telegramSummary, aircraftView, nextCollect } = require('./status.js');
 const { Fleet } = require('./fleet.js');
 const { demoPlan } = require('./demoPlan.js');
 
 const HOST = '127.0.0.1';
-const FILES = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
-  '/board.js': ['board.js', 'text/javascript; charset=utf-8'] };
+const JS = 'text/javascript; charset=utf-8';
+const FILES = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', JS], '/board.js': ['board.js', JS], '/geo.js': ['geo.js', JS] };
 const hosts = (port) => [`127.0.0.1:${port}`, `localhost:${port}`];
 const allowedHost = (host, port) => hosts(port).includes(String(host || '').toLowerCase());
 const sameOrigin = (origin, port) => hosts(port).some((h) => origin === `http://${h}`);
@@ -87,6 +87,14 @@ function main() {
       fleet: fleet ? { on: true, drones: snapshot ? snapshot.drones.length : 0, reports: fleet.reports, speed: fleet.speed } : { on: false } };
   }
 
+  // the ADS-B sensor network as of the last collect: the aircraft of the newest succeeded actor run
+  const aircraft = () => cached('aircraft', 60e3, async () => {
+    const run = (await getJson(`https://api.apify.com/v2/acts/${ACTOR}/runs?desc=1&limit=10`, apifyH)).data.items.find((r) => r.status === 'SUCCEEDED');
+    if (!run) return { ts: null, source: null, aircraft: [] };
+    return cached(`aircraft:${run.id}`, 3600e3, async () => aircraftView(await getJson(
+      `https://api.apify.com/v2/datasets/${run.defaultDatasetId}/items?clean=true&limit=3000&fields=ts,source,hex,flight,lat,lon,nic,nac_p,alt_geom,alt_baro,empty`, apifyH)));
+  });
+
   // the simulated fleet: sorties from the mirror + the latest decisions, reports to WF7, telemetry to the browser
   let fleet = null, snapshot = null;
   const streams = new Set();
@@ -142,6 +150,7 @@ function main() {
         if (FILES[pathname]) return send(200, FILES[pathname][1], fs.readFileSync(path.join(__dirname, FILES[pathname][0])));
         if (pathname === '/config.js') return send(200, 'text/javascript; charset=utf-8', config());
         if (pathname === '/api/status') return json(200, await status());
+        if (pathname === '/api/aircraft') return json(200, await aircraft());
         if (pathname === '/api/fleet') return json(200, snapshot || { drones: [], grounded: [], effects: [], events: [], reports: {} });
         if (pathname === '/api/fleet/stream') {
           res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });

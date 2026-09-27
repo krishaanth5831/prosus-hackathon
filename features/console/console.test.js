@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { boardRows, column, logKind } = require('./board.js');
-const { n8nSummary, apifySummary, telegramSummary, nextCollect } = require('./status.js');
+const { n8nSummary, apifySummary, telegramSummary, aircraftView, nextCollect } = require('./status.js');
+const GEO = require('./geo.js');
 const { Fleet, routeFor, positionAt, gnss, airborne, keptDown, cellId, SOURCE } = require('./fleet.js');
 const { demoPlan } = require('./demoPlan.js');
 const { consoleRequest, testRowNumbers, C5 } = require('./sheetOps.js');
@@ -65,6 +66,26 @@ test('status: n8n, Apify and Telegram summaries carry names, states and times on
   assert.deepEqual(t, { bot: 'airguard_ops_demo_bot', webhook: true, pending: 0, lastError: { at: '2026-09-27T09:59:00.000Z', message: 'Bad Gateway' } });
   assert.equal(JSON.stringify(t).includes('https://x'), false, 'the webhook URL never reaches the browser');
   assert.equal(nextCollect(Date.parse('2026-09-27T10:02:10Z')), '2026-09-27T10:05:00.000Z');
+});
+
+test('aircraft: the real sensor network at the last collect, with the binCells rules', () => {
+  const v = aircraftView([{ ts: '2026-09-27T10:00:01Z', source: 'adsb.lol', hex: 'abc', flight: 'LOT3KM  ', lat: 54.123456, lon: 23.5, nic: 8, nac_p: 9, alt_geom: 36000, alt_baro: 35900 },
+    { ts: 't', hex: 'def', lat: 55, lon: 24, nic: 5, nac_p: 9, alt_geom: 30000, alt_baro: 28000 }, { hex: 'no-sensor', lat: 56, lon: 25, alt_baro: 'ground' },
+    { empty: true, errors: ['x'] }, { hex: 'no position' }]);
+  assert.deepEqual([v.ts, v.source, v.aircraft.length], ['2026-09-27T10:00:01Z', 'adsb.lol', 3]);
+  assert.deepEqual(v.aircraft[0], { lat: 54.1235, lon: 23.5, flight: 'LOT3KM', alt: 35900, sensor: true, degraded: false, spoof: false });
+  assert.deepEqual([v.aircraft[1].degraded, v.aircraft[1].spoof], [true, true]);
+  assert.deepEqual([v.aircraft[2].sensor, v.aircraft[2].degraded, v.aircraft[2].spoof], [false, false, false]);
+});
+
+test('map region: the eastern flank from the design; every demo sortie and every outline fits inside it', () => {
+  const R = GEO.REGION, inside = (lat, lon) => lat >= R.lat0 && lat <= R.lat1 && lon >= R.lon0 && lon <= R.lon1;
+  assert.deepEqual(R, { lat0: 53.5, lat1: 60.9, lon0: 17.6, lon1: 30.6 });
+  for (const r of demoPlan(new Date('2026-09-27T10:00:00Z'))) for (const c of r.cells.split(';')) {
+    const [la, lo] = c.split('_').map(Number);
+    assert.ok(inside(la, lo) && inside(la + 0.5, lo + 0.5), `${r.sortie_id} cell ${c} is on the map`);
+  }
+  for (const [lon, lat] of [...GEO.COAST.flat(), ...GEO.BORDERS.flatMap(([line]) => line)]) assert.ok(inside(lat, lon), `${lat},${lon}`);
 });
 
 test('fleet: routes stay inside their planned cells, both ways along a line and round a box', () => {
@@ -204,5 +225,8 @@ test('page: never safe or clear, no green, no key in the repo, CEST, pinned and 
   for (const lib of html.match(/<script src="https[^"]+"[^>]*>/g)) assert.match(lib, /integrity="sha384-[^"]+" crossorigin="anonymous"/, lib);
   assert.match(html, /supabase-js@2\.\d+\.\d+\//, 'supabase-js pinned');
   assert.match(app, /const TZ = 'Europe\/Amsterdam'/, 'CEST on screen');
+  assert.doesNotMatch(html + app, /tile\/|tileLayer|basemaps|arcgisonline/, 'no tile server: the map is drawn from geo.js');
+  assert.match(app, /map\.setMinZoom\(z\)/, 'zoomed all the way out shows the region; no further out');
+  assert.match(app, /maxBounds: REGION/, 'panning stays inside the region');
   assert.doesNotMatch(app, /toLocale\w*String\(\)|getHours\(\)/, 'no browser-local time');
 });

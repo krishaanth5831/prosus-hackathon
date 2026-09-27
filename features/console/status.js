@@ -49,7 +49,23 @@ function telegramSummary(me, hook, now) {
   };
 }
 
+// aircraftView(dataset items of one actor run, C2) -> the aircraft the map draws: the ADS-B sensor network at that
+// collect. degraded / spoof use the same rules as binCells.js (NIC < 7 or NACp < 8; GPS/baro gap > 1500 ft).
+function aircraftView(items) {
+  const rows = (Array.isArray(items) ? items : []).filter((a) => a && !a.empty && Number.isFinite(a.lat) && Number.isFinite(a.lon));
+  return {
+    ts: rows.length ? rows[0].ts : null, source: rows.length ? rows[0].source : null,
+    aircraft: rows.map((a) => {
+      const sensor = a.nic != null || a.nac_p != null;
+      return { lat: +a.lat.toFixed(4), lon: +a.lon.toFixed(4), flight: String(a.flight || a.hex || '').trim().slice(0, 10),
+        alt: a.alt_baro ?? a.alt_geom ?? null, sensor,
+        degraded: sensor && ((a.nic ?? 99) < 7 || (a.nac_p ?? 99) < 8),
+        spoof: Number.isFinite(a.alt_geom) && Number.isFinite(a.alt_baro) && Math.abs(a.alt_geom - a.alt_baro) > 1500 };
+    }),
+  };
+}
+
 // nextCollect(now) -> the next */5 UTC boundary: when the Apify schedule starts the next cycle
 const nextCollect = (now) => new Date(Math.floor(now / FIVE_MIN) * FIVE_MIN + FIVE_MIN).toISOString();
 
-if (typeof module !== 'undefined') module.exports = { n8nSummary, apifySummary, telegramSummary, nextCollect };
+if (typeof module !== 'undefined') module.exports = { n8nSummary, apifySummary, telegramSummary, aircraftView, nextCollect };

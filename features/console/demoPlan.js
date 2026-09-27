@@ -10,7 +10,7 @@ const AREAS = [
   { unit: 'LV Border Guard · Latgale (DEMO)', cells: ['56.0_27.5', '56.5_27.5'] },         // Latvia–Russia/Belarus
   { unit: 'LT Border Guard · Pagėgiai (DEMO)', cells: ['55.0_21.5', '55.0_22.0'] },        // Kaliningrad
   { unit: 'LT Border Guard · Šalčininkai (DEMO)', cells: ['54.0_25.0', '54.5_25.0'] },     // Belarus
-  { unit: 'PL Border Guard · Podlaskie (DEMO)', cells: ['53.0_23.5', '53.5_23.0'] },       // Poland–Belarus
+  { unit: 'PL Border Guard · Suwałki (DEMO)', cells: ['54.0_22.5', '53.5_23.0'] },         // Poland: Suwałki gap to Belarus
   { unit: 'LT Border Guard · Ignalina (DEMO)', cells: ['55.0_26.0', '55.5_26.5'] },        // Belarus–Latvia
   { unit: 'EE Border Guard · Värska (DEMO)', cells: ['57.5_27.0', '58.0_27.0'] },          // south of Lake Peipus
 ];

@@ -71,32 +71,62 @@
 
   // ---------- state ----------
   const S = { cells: new Map(), incidents: new Map(), log: [], decisions: new Map(), sorties: new Map(), sync: null, reports: [],
-    fleet: null, status: null, obsHour: null, rt: 'CONNECTING', view: 'live', sel: null, tab: 'tel', filter: 'all',
+    fleet: null, status: null, air: null, obsHour: null, rt: 'CONNECTING', view: 'live', sel: null, tab: 'tel', filter: 'all',
     hist: new Map(), trails: new Map(), seenEvents: new Set(), lastRuns: {}, confirm: null, newLogId: null };
   const rows = () => window.boardRows([...S.sorties.values()], [...S.decisions.values()], S.sync && S.sync.synced_at);
 
-  // ---------- map ----------
-  const map = L.map('map', { zoomControl: false, minZoom: 4, maxZoom: 12, worldCopyJump: false });
-  map.fitBounds([[52.8, 17.0], [60.4, 29.5]]);          // the eastern flank: Poland to the Gulf of Finland
+  // ---------- map: the console's own drawing of the eastern flank (geo.js), locked to that region ----------
+  // A flat projection like the design (x = lon · cos 57°, y = lat) and no tile server. You can zoom in, never out.
+  const GEO = AG_GEO, RG = GEO.REGION;
+  const CRS = L.extend({}, L.CRS.Simple, { transformation: new L.Transformation(Math.cos(57 * Math.PI / 180), 0, -1, 0) });
+  const REGION = L.latLngBounds([RG.lat0, RG.lon0], [RG.lat1, RG.lon1]);
+  const map = L.map('map', { crs: CRS, zoomControl: false, zoomSnap: 0.1, zoomDelta: 0.5, wheelPxPerZoomLevel: 120,
+    maxBounds: REGION, maxBoundsViscosity: 1, inertia: false });
+  map.attributionControl.setPrefix(false).addAttribution('Outlines approximate · ADS-B: adsb.lol / adsb.fi');
+  let fitted = false;
+  function lockRegion() {                         // zoomed all the way out = the whole region; only zooming in is allowed
+    const z = map.getBoundsZoom(REGION, false, L.point(16, 16));
+    map.setMinZoom(z); map.setMaxZoom(z + 4);
+    if (!fitted || map.getZoom() < z) { map.fitBounds(REGION, { padding: [8, 8], animate: false }); fitted = true; }
+  }
+  lockRegion();
+  map.on('resize', lockRegion);
   L.control.zoom({ position: 'bottomright' }).addTo(map);
-  const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas';
-  L.tileLayer(`${ESRI}/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 12,
-    attribution: 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · ADS-B: adsb.lol / adsb.fi' }).addTo(map);
-  map.createPane('labels').style.zIndex = 450;      // place names above the cells, below the drones
-  map.getPane('labels').style.pointerEvents = 'none';
-  L.tileLayer(`${ESRI}/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 12, pane: 'labels', opacity: 0.7 }).addTo(map);
-  const G = { cells: L.layerGroup().addTo(map), effects: L.layerGroup().addTo(map), sel: L.layerGroup().addTo(map),
+  map.createPane('base').style.zIndex = 250;
+  map.getPane('base').style.pointerEvents = 'none';
+  map.createPane('air').style.zIndex = 380;
+  const flip = ([lon, lat]) => [lat, lon];
+  const off = { pane: 'base', interactive: false };
+  for (let la = RG.lat0 + 0.5; la < RG.lat1; la += 0.5) L.polyline([[la, RG.lon0], [la, RG.lon1]], { ...off, color: '#a0b4c8', weight: 1, opacity: la % 1 ? 0.035 : 0.07 }).addTo(map);
+  for (let lo = Math.ceil(RG.lon0 * 2) / 2; lo < RG.lon1; lo += 0.5) L.polyline([[RG.lat0, lo], [RG.lat1, lo]], { ...off, color: '#a0b4c8', weight: 1, opacity: lo % 1 ? 0.035 : 0.07 }).addTo(map);
+  for (const line of GEO.COAST) L.polyline(line.map(flip), { ...off, color: '#3a4b5a', weight: 1.2 }).addTo(map);
+  for (const [line, hostile] of GEO.BORDERS) L.polyline(line.map(flip), { ...off, color: hostile ? '#6b7a88' : '#2c3a47', weight: hostile ? 1.6 : 1, dashArray: hostile ? null : '4 4' }).addTo(map);
+  for (const l of GEO.LABELS) {
+    L.marker([l.lat, l.lon], { ...off, keyboard: false, icon: L.divIcon({ className: `geo-lbl${l.sea ? ' sea' : ''}`, html: esc(l.t), iconSize: [170, 14], iconAnchor: [85, 7] }) }).addTo(map);
+  }
+  const G = { air: L.layerGroup().addTo(map), cells: L.layerGroup().addTo(map), effects: L.layerGroup().addTo(map), sel: L.layerGroup().addTo(map),
     trails: L.layerGroup().addTo(map), drones: L.layerGroup().addTo(map) };
-  map.on('click', (e) => openCell(cellOf(e.latlng.lat, e.latlng.lng), e.latlng));
+  map.on('click', (e) => { if (REGION.contains(e.latlng)) openCell(cellOf(e.latlng.lat, e.latlng.lng), e.latlng); });
+
+  // the ADS-B sensor network at the last collect (real aircraft, from the newest Apify run)
+  function drawAircraft() {
+    G.air.clearLayers();
+    for (const a of (S.air && S.air.aircraft) || []) {
+      if (!REGION.contains([a.lat, a.lon])) continue;
+      const col = a.spoof ? '#a58bff' : a.degraded ? '#ff8a7a' : '#aabed2';
+      L.circleMarker([a.lat, a.lon], { pane: 'air', radius: a.sensor ? 2.2 : 1.5, stroke: false, fillColor: col, fillOpacity: a.degraded || a.spoof ? 0.95 : 0.55, bubblingMouseEvents: false })
+        .bindTooltip(`${esc(a.flight || 'aircraft')} · ${a.alt ?? '–'} ft${a.degraded ? ' · GNSS degraded' : ''}${a.spoof ? ' · GPS/baro gap > 1500 ft' : ''}${a.sensor ? '' : ' · no NIC/NACp, not a sensor'}`, { direction: 'top', offset: [0, -4] })
+        .addTo(G.air);
+    }
+  }
 
   const shapes = new Map();
   function cellLook(c) {
-    if (c.state === 'JAMMED') return { cls: 'jam', o: { color: '#ff5d5d', weight: 1.2, fillColor: '#ff5d5d', fillOpacity: c.severity === 'high' ? 0.4 : 0.28 } };
-    if (c.state === 'SPOOF') return { cls: 'spoof', o: { color: '#a58bff', weight: 1.2, fillColor: '#a58bff', fillOpacity: 0.36 } };
-    if (c.state === 'UNKNOWN') return { cls: 'unk', o: { color: '#6f7a86', weight: 0.8, opacity: 0.6, fillOpacity: 1 } };
+    if (c.state === 'JAMMED') return { cls: 'jam', color: '#ff5d5d', o: { color: '#ff5d5d', weight: 1.2, opacity: 0.9, fillColor: '#ff5d5d', fillOpacity: c.severity === 'high' ? 0.34 : 0.22 } };
+    if (c.state === 'SPOOF') return { cls: 'spoof', color: '#a58bff', o: { color: '#a58bff', weight: 1.2, opacity: 0.9, fillColor: '#a58bff', fillOpacity: 0.3 } };
+    if (c.state === 'UNKNOWN') return { cls: 'unk', o: { stroke: false, fillOpacity: 1 } };
     const drone = (c.n_total ?? 0) < 3 && !!c.drone_evidence;
-    return { cls: drone ? 'nki drone' : 'nki', o: { color: drone ? '#4fd1e0' : '#9fb0c2', weight: drone ? 1.3 : 0.8, opacity: drone ? 0.75 : 0.4,
-      dashArray: drone ? '3 4' : null, fillOpacity: 0 } };
+    return { cls: drone ? 'nki drone' : 'nki', o: { color: drone ? '#4fd1e0' : '#a0b4c8', weight: 1, opacity: drone ? 0.55 : 0.3, dashArray: drone ? '2 3' : null, fillOpacity: 0 } };
   }
   function drawCells() {
     const seen = new Set();
@@ -104,13 +134,14 @@
       seen.add(c.cell_id);
       const look = cellLook(c), key = `${look.cls}|${c.severity || ''}`, old = shapes.get(c.cell_id);
       if (old && old.key === key) continue;
-      if (old) G.cells.removeLayer(old.layer);
+      if (old) { G.cells.removeLayer(old.layer); if (old.ripple) G.cells.removeLayer(old.ripple); }
       const layer = L.rectangle(bounds(c.cell_id), { ...look.o, className: `cell ${look.cls}`, bubblingMouseEvents: false })
         .on('click', (e) => openCell(c.cell_id, e.latlng));
-      G.cells.addLayer(layer);
-      shapes.set(c.cell_id, { key, layer });
+      const ripple = look.color ? L.rectangle(bounds(c.cell_id), { color: look.color, weight: 1.2, fill: false, interactive: false, className: 'ripple' }) : null;
+      G.cells.addLayer(layer); if (ripple) G.cells.addLayer(ripple);
+      shapes.set(c.cell_id, { key, layer, ripple });
     }
-    for (const [id, s] of shapes) if (!seen.has(id)) { G.cells.removeLayer(s.layer); shapes.delete(id); }
+    for (const [id, s] of shapes) if (!seen.has(id)) { G.cells.removeLayer(s.layer); if (s.ripple) G.cells.removeLayer(s.ripple); shapes.delete(id); }
   }
   function drawEffects() {
     G.effects.clearLayers();
@@ -139,39 +170,38 @@
         <p class="note">Only the simulated drones feel it. What they report runs through the real pipeline: WF7 → WF2 → WF3 → Telegram.</p>` : ''}</div>`;
   }
 
-  // drones: markers glide between the 2-second fleet updates
+  // drones, drawn like the design: an arrow on its heading, its id, its GNSS state, a trail. They glide between updates.
   const marks = new Map();
-  function droneHtml(d) {
-    return `<div class="ring"></div><div class="body" style="--hdg:${d.hdg}deg"><svg viewBox="0 0 22 22"><path d="M11 1 L18 19 L11 15 L4 19 Z"/></svg></div>`
-      + `<div class="tag">${esc(d.drone_id.replace('BG-', ''))}<em>${d.env === 'JAMMED' ? 'GNSS JAMMED' : d.env === 'SPOOF' ? 'GNSS SPOOF?' : ''}</em></div>`;
-  }
+  const droneHtml = () => '<div class="ring"></div><div class="bad"></div><div class="body"><svg viewBox="-7 -9 14 16" width="14" height="16"><path d="M0 -8 L6 6 L0 3 L-6 6 Z"/></svg></div><div class="tag"><span></span><em></em></div>';
+  const TRAIL = { color: '#c8d7e6', weight: 1, opacity: 0.18 }, TRAIL_SEL = { color: '#4fd1e0', weight: 2, opacity: 0.8 };
   function drawDrones() {
     const drones = (S.fleet && S.fleet.drones) || [], ids = new Set(drones.map((d) => d.drone_id)), now = performance.now();
     for (const d of drones) {
       let k = marks.get(d.drone_id);
       if (!k) {
-        const m = L.marker([d.lat, d.lon], { icon: L.divIcon({ className: 'drone-ic', iconSize: [0, 0], html: droneHtml(d) }), keyboard: false })
+        const m = L.marker([d.lat, d.lon], { icon: L.divIcon({ className: 'drone-ic', iconSize: [0, 0], html: droneHtml() }), keyboard: false })
           .on('click', () => selectDrone(d.drone_id)).addTo(G.drones);
         k = { m, from: [d.lat, d.lon], to: [d.lat, d.lon], t0: now, trail: null };
         marks.set(d.drone_id, k);
-      } else { k.from = k.m.getLatLng(); k.from = [k.from.lat, k.from.lng]; k.to = [d.lat, d.lon]; k.t0 = now; }
+      } else { const p = k.m.getLatLng(); k.from = [p.lat, p.lng]; k.to = [d.lat, d.lon]; k.t0 = now; }
       const el = k.m.getElement();
       if (el) {
         el.classList.remove('NORMAL', 'JAMMED', 'SPOOF'); el.classList.add(d.env); el.classList.toggle('sel', d.drone_id === S.sel);
         el.querySelector('.body').style.setProperty('--hdg', `${d.hdg}deg`);
+        el.querySelector('.tag span').textContent = d.drone_id.replace('BG-', '');
         el.querySelector('.tag em').textContent = d.env === 'JAMMED' ? 'GNSS JAMMED' : d.env === 'SPOOF' ? 'GNSS SPOOF?' : '';
       }
       const tr = S.trails.get(d.drone_id) || [];
-      if (!k.trail) k.trail = L.polyline(tr, { color: '#dbe4ec', weight: 1, opacity: 0.35, interactive: false }).addTo(G.trails);
+      if (!k.trail) k.trail = L.polyline(tr, { ...TRAIL, interactive: false }).addTo(G.trails);
       k.trail.setLatLngs(tr);
-      k.trail.setStyle(d.drone_id === S.sel ? { color: '#4fd1e0', weight: 2, opacity: 0.85 } : { color: '#dbe4ec', weight: 1, opacity: 0.35 });
+      k.trail.setStyle(d.drone_id === S.sel ? TRAIL_SEL : TRAIL);
     }
     for (const [id, k] of marks) if (!ids.has(id)) { G.drones.removeLayer(k.m); if (k.trail) G.trails.removeLayer(k.trail); marks.delete(id); }
     G.sel.clearLayers();
     const d = drones.find((x) => x.drone_id === S.sel);
     if (d && d.route && d.route.points.length) {
       const pts = d.route.loop ? [...d.route.points, d.route.points[0]] : d.route.points;
-      L.polyline(pts, { color: '#4fd1e0', weight: 1.2, dashArray: '4 6', opacity: 0.7, interactive: false }).addTo(G.sel);
+      L.polyline(pts, { color: '#4fd1e0', weight: 1.2, dashArray: '3 4', opacity: 0.45, interactive: false }).addTo(G.sel);
     }
     if (d && d.ghost) {
       L.polyline([[d.lat, d.lon], d.ghost], { color: '#a58bff', weight: 1, dashArray: '2 5', interactive: false }).addTo(G.sel);
@@ -423,7 +453,8 @@
   const q = async (p) => { const { data, error } = await p; if (error) throw new Error(error.message); return data; };
   async function loadCells() {
     const data = await q(sb.from('cell_status').select('*'));
-    S.cells = new Map(data.filter((c) => SHOW_TEST || !isTest(c.cell_id)).map((c) => [c.cell_id, c]));
+    const onMap = (id) => { const [la, lo] = id.split('_').map(Number); return REGION.contains([la + 0.25, lo + 0.25]); };   // the region only
+    S.cells = new Map(data.filter((c) => (SHOW_TEST || !isTest(c.cell_id)) && onMap(c.cell_id)).map((c) => [c.cell_id, c]));
     drawCells(); renderChips();
   }
   async function loadAll() {
@@ -491,6 +522,10 @@
     } catch (e) { S.status = S.status || {}; }
   }
 
+  async function loadAircraft() {
+    try { const r = await fetch('/api/aircraft'); if (r.ok) { S.air = await r.json(); drawAircraft(); } } catch { /* the map keeps the last picture */ }
+  }
+
   function onFleet() {
     const F = S.fleet;
     for (const d of F.drones) {
@@ -529,9 +564,10 @@
   // ---------- start ----------
   clock(); setInterval(clock, 1000);
   if (!sb) { banner('No Supabase URL or anon key: start the console with npm run console so it can write /config.js.'); return; }
-  loadAll(); subscribe(); startFleet(); loadStatus();
+  loadAll(); subscribe(); startFleet(); loadStatus(); loadAircraft();
   setInterval(() => loadCells().catch(() => {}), 30e3);      // cell_status is a view: states also age out with no row change
   setInterval(loadStatus, 15e3);
+  setInterval(loadAircraft, 60e3);                          // a new picture after every 5-min collect
   setInterval(() => { if (S.rt !== 'SUBSCRIBED') loadAll(); }, 20e3);   // no realtime: poll
   setInterval(loadAll, 5 * 60e3);
   setInterval(() => { if (S.view === 'sorties' || S.view === 'pipe') render(); }, 30e3);   // relative times
