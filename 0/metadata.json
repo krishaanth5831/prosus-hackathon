@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3HA70JGWDY18FA9WV8YGNA9",
+  "session_id": "326c1420-bcbd-405e-81de-4997bcc868d9",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-27T11:32:45.09984247Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "33cac8dd02f1",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1480,
+    "cache_creation_tokens": 2665965,
+    "cache_read_tokens": 323489360,
+    "output_tokens": 1449433,
+    "api_call_count": 725
+  },
+  "session_metrics": {
+    "turn_count": 22
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 185,
+      "user_lines_removed": 13,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.json": 90,
+        ".codex/hooks.json": 88,
+        ".freebuff/project-id": 1,
+        "features/console/app.js": 5,
+        "features/console/index.html": 1
+      },
+      "user_removed_per_file": {
+        "features/console/app.js": 7,
+        "features/console/index.html": 6
+      }
+    }
+  ]
+}
