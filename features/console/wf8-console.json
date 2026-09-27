@@ -1,0 +1,685 @@
+{
+  "name": "AirGuard WF8 Console",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "airguard-console",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {
+          "responseData": "firstEntryJson"
+        }
+      },
+      "id": "5ed8d23d-6f5b-4c73-9759-bd9750cc26a4",
+      "name": "Console request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "6dbb655c-4d39-417e-991a-ae5ff69f7086",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "AirGuard Console"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "64f05d4b-2365-4da8-b8c7-afaa73dc006b",
+              "name": "sheet_id",
+              "value": "your_google_sheet_id",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "24b10fde-42d8-4cd8-bff7-d97dfcd90fa1",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Owner: Krish (see CLAUDE.md)\n// Pure functions pasted into WF8 Console (n8n). The ops console asks WF8 to load or remove the demo plan, or to\n// sync the sheet mirror now. WF8 only ever writes or removes test rows (C11 sortie ids T-*); other rows stay.\nconst C5 = ['sortie_id', 'unit', 'priority', 'launch_at', 'window_end', 'cells', 'status', 'decided_by', 'note'];\nconst TEST_ID = /^T-\\d{1,6}$/;\nconst CELLS = /^-?\\d+\\.\\d_-?\\d+\\.\\d(;-?\\d+\\.\\d_-?\\d+\\.\\d)*$/;\nconst UTC = /^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ$/;\n\n// consoleRequest(webhook body) -> { ok, op, rows, reason }. rows only for \"load\": C5 rows, test ids, text values.\nfunction consoleRequest(body) {\n  const b = body && typeof body === 'object' ? body : {};\n  const refuse = (reason) => ({ ok: false, op: String(b.op || '').slice(0, 10), rows: [], reason });\n  if (!['load', 'remove', 'sync'].includes(b.op)) return refuse('op must be load, remove or sync');\n  if (b.op !== 'load') return { ok: true, op: b.op, rows: [], reason: '' };\n  const rows = Array.isArray(b.rows) ? b.rows : [];\n  if (rows.length < 1 || rows.length > 60) return refuse('load needs 1 to 60 rows');\n  const out = [];\n  for (const r of rows) {\n    if (!TEST_ID.test(r && r.sortie_id)) return refuse('every sortie_id must be a test id T-<number> (C11)');\n    if (!UTC.test(r.launch_at) || !UTC.test(r.window_end)) return refuse(`${r.sortie_id}: launch_at and window_end must be UTC ISO 8601`);\n    if (!CELLS.test(r.cells)) return refuse(`${r.sortie_id}: cells must be C1 cell ids joined by \";\"`);\n    if (!['priority', 'routine', 'low'].includes(r.priority) || r.status !== 'PLANNED') return refuse(`${r.sortie_id}: priority or status is not C5`);\n    out.push(Object.fromEntries(C5.map((k) => [k, String(r[k] ?? '').slice(0, 200)])));\n  }\n  return { ok: true, op: 'load', rows: out, reason: '' };\n}\n\n// testRowNumbers(sheet rows as read by n8n, with row_number) -> row numbers of test rows, highest first\n// (deleting from the bottom up keeps the other row numbers valid)\nfunction testRowNumbers(rows) {\n  return rows.filter((r) => r && TEST_ID.test(String(r.sortie_id || '').trim()) && Number.isInteger(r.row_number) && r.row_number >= 2)\n    .map((r) => r.row_number).sort((a, b) => b - a);\n}\n\n// consoleLogLine(request, test rows removed, rows in the mirror now) -> the agent_log line (C8) for a console request\nfunction consoleLogLine(req, removed, n) {\n  const outcome = `sheet mirror synced: ${n} rows`;\n  if (req.op === 'load') return { workflow: 'WF8', action: 'LOAD DEMO PLAN', outcome,\n    reason: `${req.rows.length} fictional test sorties written to the Google Sheet from the ops console${removed ? `, ${removed} older test rows removed first` : ''}` };\n  if (req.op === 'remove') return { workflow: 'WF8', action: 'REMOVE TEST SORTIES', outcome,\n    reason: `${removed} test sorties (T-*) removed from the Google Sheet from the ops console` };\n  return { workflow: 'WF8', action: 'SYNC SHEET MIRROR', reason: 'requested from the ops console', outcome };\n}\n\n// mirrorQuery(node, by) -> the n8n Postgres query (WF3, WF8) that makes the Supabase mirror equal to what `node`\n// read from the sheet. The rows travel as JSON in a dollar-quoted literal; every \"$\" in them is sent as the JSON\n// escape $, so nothing typed into a cell can end the literal.\nconst mirrorQuery = (node, by) => '=select sync_sorties($sheet${{ JSON.stringify($(\\'' + node\n  + '\\').all().map((i) => i.json)).replace(/\\\\$/g, \\'\\\\\\\\u0024\\') }}$sheet$::jsonb, \\'' + by + '\\') as n;';\n\nif (typeof module !== 'undefined') module.exports = { consoleRequest, testRowNumbers, consoleLogLine, mirrorQuery, C5 };\n// n8n glue (Code nodes, \"Run once for all items\"):\n// return [{ json: consoleRequest($('Console request').first().json.body) }];\n// return [{ json: { rows: testRowNumbers($('Read before').all().map((i) => i.json)) } }];\n// const ran = (n) => { try { return $(n).first().json; } catch (e) { return null; } };\n// return [{ json: consoleLogLine($('Request').first().json, (ran('Test rows') || { rows: [] }).rows.length, $('Sync mirror').first().json.n) }];\nreturn [{ json: consoleRequest($('Console request').first().json.body) }];\n"
+      },
+      "id": "5f979ee4-8dd1-4bc6-b48f-7e4e31bc49fe",
+      "name": "Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4acffe29-74e3-400e-a11f-3c18ad7c24ab",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7de739a4-e9c4-4704-b936-cf028fb29639",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ok: false, reason: $json.reason } }];\n"
+      },
+      "id": "f3fabf03-1513-40f8-975d-ce51056e1e34",
+      "name": "Refused",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "922c9e39-6f0a-4a7d-a1ac-f42edaaed35d",
+              "leftValue": "={{ $json.op }}",
+              "rightValue": "sync",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a067297d-3731-456a-8bad-23dbe70ada7f",
+      "name": "Sync only?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "sorties",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "5e0b1006-c70a-41fb-9d06-b63cc6fbaae5",
+      "name": "Read before",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1100,
+        400
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "AirGuard Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Owner: Krish (see CLAUDE.md)\n// Pure functions pasted into WF8 Console (n8n). The ops console asks WF8 to load or remove the demo plan, or to\n// sync the sheet mirror now. WF8 only ever writes or removes test rows (C11 sortie ids T-*); other rows stay.\nconst C5 = ['sortie_id', 'unit', 'priority', 'launch_at', 'window_end', 'cells', 'status', 'decided_by', 'note'];\nconst TEST_ID = /^T-\\d{1,6}$/;\nconst CELLS = /^-?\\d+\\.\\d_-?\\d+\\.\\d(;-?\\d+\\.\\d_-?\\d+\\.\\d)*$/;\nconst UTC = /^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ$/;\n\n// consoleRequest(webhook body) -> { ok, op, rows, reason }. rows only for \"load\": C5 rows, test ids, text values.\nfunction consoleRequest(body) {\n  const b = body && typeof body === 'object' ? body : {};\n  const refuse = (reason) => ({ ok: false, op: String(b.op || '').slice(0, 10), rows: [], reason });\n  if (!['load', 'remove', 'sync'].includes(b.op)) return refuse('op must be load, remove or sync');\n  if (b.op !== 'load') return { ok: true, op: b.op, rows: [], reason: '' };\n  const rows = Array.isArray(b.rows) ? b.rows : [];\n  if (rows.length < 1 || rows.length > 60) return refuse('load needs 1 to 60 rows');\n  const out = [];\n  for (const r of rows) {\n    if (!TEST_ID.test(r && r.sortie_id)) return refuse('every sortie_id must be a test id T-<number> (C11)');\n    if (!UTC.test(r.launch_at) || !UTC.test(r.window_end)) return refuse(`${r.sortie_id}: launch_at and window_end must be UTC ISO 8601`);\n    if (!CELLS.test(r.cells)) return refuse(`${r.sortie_id}: cells must be C1 cell ids joined by \";\"`);\n    if (!['priority', 'routine', 'low'].includes(r.priority) || r.status !== 'PLANNED') return refuse(`${r.sortie_id}: priority or status is not C5`);\n    out.push(Object.fromEntries(C5.map((k) => [k, String(r[k] ?? '').slice(0, 200)])));\n  }\n  return { ok: true, op: 'load', rows: out, reason: '' };\n}\n\n// testRowNumbers(sheet rows as read by n8n, with row_number) -> row numbers of test rows, highest first\n// (deleting from the bottom up keeps the other row numbers valid)\nfunction testRowNumbers(rows) {\n  return rows.filter((r) => r && TEST_ID.test(String(r.sortie_id || '').trim()) && Number.isInteger(r.row_number) && r.row_number >= 2)\n    .map((r) => r.row_number).sort((a, b) => b - a);\n}\n\n// consoleLogLine(request, test rows removed, rows in the mirror now) -> the agent_log line (C8) for a console request\nfunction consoleLogLine(req, removed, n) {\n  const outcome = `sheet mirror synced: ${n} rows`;\n  if (req.op === 'load') return { workflow: 'WF8', action: 'LOAD DEMO PLAN', outcome,\n    reason: `${req.rows.length} fictional test sorties written to the Google Sheet from the ops console${removed ? `, ${removed} older test rows removed first` : ''}` };\n  if (req.op === 'remove') return { workflow: 'WF8', action: 'REMOVE TEST SORTIES', outcome,\n    reason: `${removed} test sorties (T-*) removed from the Google Sheet from the ops console` };\n  return { workflow: 'WF8', action: 'SYNC SHEET MIRROR', reason: 'requested from the ops console', outcome };\n}\n\n// mirrorQuery(node, by) -> the n8n Postgres query (WF3, WF8) that makes the Supabase mirror equal to what `node`\n// read from the sheet. The rows travel as JSON in a dollar-quoted literal; every \"$\" in them is sent as the JSON\n// escape $, so nothing typed into a cell can end the literal.\nconst mirrorQuery = (node, by) => '=select sync_sorties($sheet${{ JSON.stringify($(\\'' + node\n  + '\\').all().map((i) => i.json)).replace(/\\\\$/g, \\'\\\\\\\\u0024\\') }}$sheet$::jsonb, \\'' + by + '\\') as n;';\n\nif (typeof module !== 'undefined') module.exports = { consoleRequest, testRowNumbers, consoleLogLine, mirrorQuery, C5 };\n// n8n glue (Code nodes, \"Run once for all items\"):\n// return [{ json: consoleRequest($('Console request').first().json.body) }];\n// return [{ json: { rows: testRowNumbers($('Read before').all().map((i) => i.json)) } }];\n// const ran = (n) => { try { return $(n).first().json; } catch (e) { return null; } };\n// return [{ json: consoleLogLine($('Request').first().json, (ran('Test rows') || { rows: [] }).rows.length, $('Sync mirror').first().json.n) }];\nreturn [{ json: { rows: testRowNumbers($('Read before').all().map((i) => i.json)) } }];\n"
+      },
+      "id": "346bd7df-2398-453c-8c56-73b67820b752",
+      "name": "Test rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        400
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "89fff041-d8e3-426d-b6c8-2256532cef11",
+              "leftValue": "={{ $json.rows.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2282bcc2-2300-4d7a-9902-bf80901be6df",
+      "name": "Any test rows?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.first().json.rows.map((row) => ({ json: { row } }));\n"
+      },
+      "id": "9458c4e3-efc8-4096-b49e-1f64416c774b",
+      "name": "Each test row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "sorties",
+          "mode": "name"
+        },
+        "toDelete": "rows",
+        "startIndex": "={{ $json.row }}",
+        "numberToDelete": 1
+      },
+      "id": "6ce1fcbe-515e-4654-814f-6e40d2888dbc",
+      "name": "Delete row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1980,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "AirGuard Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "51a6c359-a0bc-4d43-a15c-ff2bbb32471b",
+              "leftValue": "={{ $('Request').first().json.rows.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2c7fb2dd-2dd0-4a81-ad1c-5afb44485bcb",
+      "name": "New rows?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2200,
+        400
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $('Request').first().json.rows.map((json) => ({ json }));\n"
+      },
+      "id": "fca4a095-f296-4ad2-af60-2475bd529cca",
+      "name": "Each new row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "sorties",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "e98532fd-668e-494f-81cf-aacb68aaaf92",
+      "name": "Append rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2640,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "AirGuard Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "sorties",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "69042e49-8e1c-44d6-8978-790d25c150a1",
+      "name": "Read after",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2860,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "AirGuard Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=select sync_sorties($sheet${{ JSON.stringify($('Read after').all().map((i) => i.json)).replace(/\\$/g, '\\\\u0024') }}$sheet$::jsonb, 'WF8') as n;",
+        "options": {}
+      },
+      "id": "7537590b-3a89-4af5-9793-4395a0b79725",
+      "name": "Sync mirror",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3080,
+        300
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Owner: Krish (see CLAUDE.md)\n// Pure functions pasted into WF8 Console (n8n). The ops console asks WF8 to load or remove the demo plan, or to\n// sync the sheet mirror now. WF8 only ever writes or removes test rows (C11 sortie ids T-*); other rows stay.\nconst C5 = ['sortie_id', 'unit', 'priority', 'launch_at', 'window_end', 'cells', 'status', 'decided_by', 'note'];\nconst TEST_ID = /^T-\\d{1,6}$/;\nconst CELLS = /^-?\\d+\\.\\d_-?\\d+\\.\\d(;-?\\d+\\.\\d_-?\\d+\\.\\d)*$/;\nconst UTC = /^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ$/;\n\n// consoleRequest(webhook body) -> { ok, op, rows, reason }. rows only for \"load\": C5 rows, test ids, text values.\nfunction consoleRequest(body) {\n  const b = body && typeof body === 'object' ? body : {};\n  const refuse = (reason) => ({ ok: false, op: String(b.op || '').slice(0, 10), rows: [], reason });\n  if (!['load', 'remove', 'sync'].includes(b.op)) return refuse('op must be load, remove or sync');\n  if (b.op !== 'load') return { ok: true, op: b.op, rows: [], reason: '' };\n  const rows = Array.isArray(b.rows) ? b.rows : [];\n  if (rows.length < 1 || rows.length > 60) return refuse('load needs 1 to 60 rows');\n  const out = [];\n  for (const r of rows) {\n    if (!TEST_ID.test(r && r.sortie_id)) return refuse('every sortie_id must be a test id T-<number> (C11)');\n    if (!UTC.test(r.launch_at) || !UTC.test(r.window_end)) return refuse(`${r.sortie_id}: launch_at and window_end must be UTC ISO 8601`);\n    if (!CELLS.test(r.cells)) return refuse(`${r.sortie_id}: cells must be C1 cell ids joined by \";\"`);\n    if (!['priority', 'routine', 'low'].includes(r.priority) || r.status !== 'PLANNED') return refuse(`${r.sortie_id}: priority or status is not C5`);\n    out.push(Object.fromEntries(C5.map((k) => [k, String(r[k] ?? '').slice(0, 200)])));\n  }\n  return { ok: true, op: 'load', rows: out, reason: '' };\n}\n\n// testRowNumbers(sheet rows as read by n8n, with row_number) -> row numbers of test rows, highest first\n// (deleting from the bottom up keeps the other row numbers valid)\nfunction testRowNumbers(rows) {\n  return rows.filter((r) => r && TEST_ID.test(String(r.sortie_id || '').trim()) && Number.isInteger(r.row_number) && r.row_number >= 2)\n    .map((r) => r.row_number).sort((a, b) => b - a);\n}\n\n// consoleLogLine(request, test rows removed, rows in the mirror now) -> the agent_log line (C8) for a console request\nfunction consoleLogLine(req, removed, n) {\n  const outcome = `sheet mirror synced: ${n} rows`;\n  if (req.op === 'load') return { workflow: 'WF8', action: 'LOAD DEMO PLAN', outcome,\n    reason: `${req.rows.length} fictional test sorties written to the Google Sheet from the ops console${removed ? `, ${removed} older test rows removed first` : ''}` };\n  if (req.op === 'remove') return { workflow: 'WF8', action: 'REMOVE TEST SORTIES', outcome,\n    reason: `${removed} test sorties (T-*) removed from the Google Sheet from the ops console` };\n  return { workflow: 'WF8', action: 'SYNC SHEET MIRROR', reason: 'requested from the ops console', outcome };\n}\n\n// mirrorQuery(node, by) -> the n8n Postgres query (WF3, WF8) that makes the Supabase mirror equal to what `node`\n// read from the sheet. The rows travel as JSON in a dollar-quoted literal; every \"$\" in them is sent as the JSON\n// escape $, so nothing typed into a cell can end the literal.\nconst mirrorQuery = (node, by) => '=select sync_sorties($sheet${{ JSON.stringify($(\\'' + node\n  + '\\').all().map((i) => i.json)).replace(/\\\\$/g, \\'\\\\\\\\u0024\\') }}$sheet$::jsonb, \\'' + by + '\\') as n;';\n\nif (typeof module !== 'undefined') module.exports = { consoleRequest, testRowNumbers, consoleLogLine, mirrorQuery, C5 };\n// n8n glue (Code nodes, \"Run once for all items\"):\n// return [{ json: consoleRequest($('Console request').first().json.body) }];\n// return [{ json: { rows: testRowNumbers($('Read before').all().map((i) => i.json)) } }];\n// const ran = (n) => { try { return $(n).first().json; } catch (e) { return null; } };\n// return [{ json: consoleLogLine($('Request').first().json, (ran('Test rows') || { rows: [] }).rows.length, $('Sync mirror').first().json.n) }];\nconst ran = (n) => { try { return $(n).first().json; } catch (e) { return null; } };\nreturn [{ json: consoleLogLine($('Request').first().json, (ran('Test rows') || { rows: [] }).rows.length, $('Sync mirror').first().json.n) }];\n"
+      },
+      "id": "4a7da174-a4a1-42bd-b25c-bdb03db0351c",
+      "name": "Log line",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "d22cbe72-1db6-491d-8b03-564043c12298",
+      "name": "Insert agent_log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3520,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ok: true, op: $('Request').first().json.op, rows: $('Sync mirror').first().json.n } }];\n"
+      },
+      "id": "36898eb9-4dba-434a-bff5-127501499e94",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3740,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Console request": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Sync only?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Refused",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync only?": {
+      "main": [
+        [
+          {
+            "node": "Read after",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read before",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read before": {
+      "main": [
+        [
+          {
+            "node": "Test rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test rows": {
+      "main": [
+        [
+          {
+            "node": "Any test rows?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any test rows?": {
+      "main": [
+        [
+          {
+            "node": "Each test row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "New rows?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Each test row": {
+      "main": [
+        [
+          {
+            "node": "Delete row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete row": {
+      "main": [
+        [
+          {
+            "node": "New rows?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New rows?": {
+      "main": [
+        [
+          {
+            "node": "Each new row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read after",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Each new row": {
+      "main": [
+        [
+          {
+            "node": "Append rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append rows": {
+      "main": [
+        [
+          {
+            "node": "Read after",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read after": {
+      "main": [
+        [
+          {
+            "node": "Sync mirror",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync mirror": {
+      "main": [
+        [
+          {
+            "node": "Log line",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log line": {
+      "main": [
+        [
+          {
+            "node": "Insert agent_log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert agent_log": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

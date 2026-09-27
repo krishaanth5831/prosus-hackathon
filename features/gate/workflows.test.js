@@ -66,7 +66,8 @@ test('WF3 Gate export: C9, reads → decide → insert decisions first → act o
   assert.equal(node(wf, 'Start').type, 'n8n-nodes-base.executeWorkflowTrigger');
   const chain = ['Start', 'Config', 'Read sorties', 'Cell status', 'Done keys', 'Recent incidents', 'decide', 'Decision rows',
     'Insert decisions', 'Acted'];
-  chain.slice(0, -1).forEach((n, k) => assert.deepEqual(next(wf, n), [chain[k + 1]], `${n} → ${chain[k + 1]}`));
+  const branch = { 'Read sorties': ['Mirror sheet'] };   // the ops console's sheet mirror, a dead-end side branch
+  chain.slice(0, -1).forEach((n, k) => assert.deepEqual(next(wf, n), [chain[k + 1], ...(branch[n] || [])], `${n} → ${chain[k + 1]}`));
   for (const n of ['Cell status', 'Done keys', 'Recent incidents']) {
     assert.deepEqual([node(wf, n).executeOnce, node(wf, n).alwaysOutputData], [true, true], `${n}: once per cycle, continues on 0 rows`);
   }
@@ -78,6 +79,16 @@ test('WF3 Gate export: C9, reads → decide → insert decisions first → act o
     ['decisions', 'autoMapInputData', true], 'insert ... on conflict (key) do nothing returning *');
   assert.ok(node(wf, 'Acted').parameters.jsCode.includes('filter((i) => i.json.id != null)'), 'only rows the insert returned');
   assert.deepEqual(next(wf, 'Acted'), ['Switch level', 'agent_log lines']);
+});
+
+test('WF3 Gate export: the sheet mirror for the ops console never touches the gate', () => {
+  const wf = load('wf3-gate.json'), mirror = node(wf, 'Mirror sheet');
+  const { mirrorQuery } = require('../console/sheetOps.js');
+  assert.equal(mirror.parameters.query, mirrorQuery('Read sorties', 'WF3'), 'the same query WF8 uses, "$" escaped');
+  assert.deepEqual([mirror.executeOnce, mirror.onError, next(wf, 'Mirror sheet')], [true, 'continueRegularOutput', []],
+    'once per cycle, a failure never stops the gate, nothing runs after it');
+  assert.ok(mirror.position[1] < node(wf, 'Cell status').position[1],
+    'v1 runs it before the gate, so the mirror holds the sheet as read and decisions made later in the cycle show on top');
 });
 
 test('WF3 Gate export: one Switch branch per level group, WATCH log only, agent_log written last', () => {

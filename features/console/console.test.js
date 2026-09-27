@@ -152,6 +152,36 @@ test('WF8 helpers: only valid test rows are written, only test rows are deleted,
     { sortie_id: 'T-3', row_number: 1 }, {}, { sortie_id: 'T-x', row_number: 9 }]), [7, 2]);
 });
 
+test('WF8 Console export: C9, secret header, tested code + documented glue, only test rows, mirror synced, one log line', () => {
+  const wf = JSON.parse(text('wf8-console.json')), node = (n) => wf.nodes.find((x) => x.name === n);
+  const next = (n, o) => (o === undefined ? (wf.connections[n]?.main ?? []).flat() : wf.connections[n]?.main?.[o] ?? []).map((c) => c.node);
+  assert.equal(wf.name, 'AirGuard WF8 Console');
+  const hook = node('Console request');
+  assert.deepEqual([hook.parameters.path, hook.parameters.authentication, hook.credentials], ['airguard-console', 'headerAuth', { httpHeaderAuth: { name: 'AirGuard Console' } }]);
+  assert.deepEqual(next('Console request'), ['Config'], 'Config follows the trigger (C9)');
+  assert.equal(node('Config').parameters.assignments.assignments[0].value, 'your_google_sheet_id', 'the real sheet id is set at import');
+  for (const n of wf.nodes) for (const ref of Object.values(n.credentials ?? {})) {
+    assert.ok(['AirGuard Postgres', 'AirGuard Sheets', 'AirGuard Console'].includes(ref.name), n.name);
+    assert.equal(ref.id, undefined, `${n.name}: credential id removed`);
+  }
+  const src = text('sheetOps.js');
+  for (const n of ['Request', 'Test rows', 'Log line']) {
+    const code = node(n).parameters.jsCode;
+    assert.ok(code.startsWith(src), `${n} = sheetOps.js + glue`);
+    for (const line of code.slice(src.length).split('\n').filter(Boolean)) assert.ok(src.includes(`// ${line}`), `${n}: glue "${line}" documented`);
+  }
+  assert.deepEqual([next('Valid?', 0), next('Valid?', 1), next('Sync only?', 0), next('Sync only?', 1)], [['Sync only?'], ['Refused'], ['Read after'], ['Read before']]);
+  assert.deepEqual([next('Any test rows?', 0), next('Any test rows?', 1), next('Delete row'), next('New rows?', 0), next('New rows?', 1)],
+    [['Each test row'], ['New rows?'], ['New rows?'], ['Each new row'], ['Read after']]);
+  assert.deepEqual(['Append rows', 'Read after', 'Sync mirror', 'Log line', 'Insert agent_log'].map((n) => next(n)),
+    [['Read after'], ['Sync mirror'], ['Log line'], ['Insert agent_log'], ['Result']]);
+  assert.equal(node('Delete row').parameters.startIndex, '={{ $json.row }}');
+  assert.deepEqual([node('New rows?').executeOnce, node('Read after').executeOnce, node('Sync mirror').executeOnce], [true, true, true], 'once, however many rows came before');
+  assert.equal(node('Append rows').parameters.options.cellFormat, 'RAW', 'ISO timestamps stay text');
+  assert.equal(node('Sync mirror').parameters.query, require('./sheetOps.js').mirrorQuery('Read after', 'WF8'));
+  assert.doesNotMatch(JSON.stringify(wf.nodes.map(({ parameters: { jsCode, ...p } }) => p)), /\b(safe|clear|cleared|green)\b/i);
+});
+
 test('server: only this host, and POSTs only from this page', () => {
   assert.deepEqual(['localhost:8787', '127.0.0.1:8787', 'LOCALHOST:8787', 'evil.example:8787', 'localhost:9999', undefined].map((h) => allowedHost(h, 8787)),
     [true, true, true, false, false, false]);

@@ -32,7 +32,25 @@ function testRowNumbers(rows) {
     .map((r) => r.row_number).sort((a, b) => b - a);
 }
 
-if (typeof module !== 'undefined') module.exports = { consoleRequest, testRowNumbers, C5 };
+// consoleLogLine(request, test rows removed, rows in the mirror now) -> the agent_log line (C8) for a console request
+function consoleLogLine(req, removed, n) {
+  const outcome = `sheet mirror synced: ${n} rows`;
+  if (req.op === 'load') return { workflow: 'WF8', action: 'LOAD DEMO PLAN', outcome,
+    reason: `${req.rows.length} fictional test sorties written to the Google Sheet from the ops console${removed ? `, ${removed} older test rows removed first` : ''}` };
+  if (req.op === 'remove') return { workflow: 'WF8', action: 'REMOVE TEST SORTIES', outcome,
+    reason: `${removed} test sorties (T-*) removed from the Google Sheet from the ops console` };
+  return { workflow: 'WF8', action: 'SYNC SHEET MIRROR', reason: 'requested from the ops console', outcome };
+}
+
+// mirrorQuery(node, by) -> the n8n Postgres query (WF3, WF8) that makes the Supabase mirror equal to what `node`
+// read from the sheet. The rows travel as JSON in a dollar-quoted literal; every "$" in them is sent as the JSON
+// escape $, so nothing typed into a cell can end the literal.
+const mirrorQuery = (node, by) => '=select sync_sorties($sheet${{ JSON.stringify($(\'' + node
+  + '\').all().map((i) => i.json)).replace(/\\$/g, \'\\\\u0024\') }}$sheet$::jsonb, \'' + by + '\') as n;';
+
+if (typeof module !== 'undefined') module.exports = { consoleRequest, testRowNumbers, consoleLogLine, mirrorQuery, C5 };
 // n8n glue (Code nodes, "Run once for all items"):
 // return [{ json: consoleRequest($('Console request').first().json.body) }];
 // return [{ json: { rows: testRowNumbers($('Read before').all().map((i) => i.json)) } }];
+// const ran = (n) => { try { return $(n).first().json; } catch (e) { return null; } };
+// return [{ json: consoleLogLine($('Request').first().json, (ran('Test rows') || { rows: [] }).rows.length, $('Sync mirror').first().json.n) }];
