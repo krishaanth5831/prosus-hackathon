@@ -1009,6 +1009,28 @@
         },
         "options": {}
       }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=select sync_sorties($sheet${{ JSON.stringify($('Read sorties').all().map((i) => i.json)).replace(/\\$/g, '\\\\u0024') }}$sheet$::jsonb, 'WF3') as n;",
+        "options": {}
+      },
+      "id": "c283bc57-b05a-4822-b34a-354d5bb69fab",
+      "name": "Mirror sheet",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        660,
+        120
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
     }
   ],
   "connections": {
@@ -1039,6 +1061,11 @@
         [
           {
             "node": "Cell status",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mirror sheet",
             "type": "main",
             "index": 0
           }
