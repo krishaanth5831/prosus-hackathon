@@ -56,10 +56,11 @@
   <div id="banner"></div>
   <h2>Legend</h2>
   <div class="legend">
-    <div><span class="sw jam"></span> JAMMED: ≥ 3 aircraft, degraded ratio over threshold, 2 checks in a row</div>
-    <div><span class="sw spoof"></span> SPOOF: ≥ 2 aircraft with GPS/baro gap &gt; 1500 ft, 2 checks</div>
+    <div><span class="sw jam"></span> JAMMED: ≥ 3 aircraft, degraded ratio over threshold, 2 checks in a row, or a drone report</div>
+    <div><span class="sw spoof"></span> SPOOF: ≥ 2 aircraft with GPS/baro gap &gt; 1500 ft, 2 checks, or a drone report</div>
     <div><span class="sw unknown"></span> UNKNOWN: &lt; 3 sensor aircraft or data older than 15 min</div>
-    <div><span class="sw nki"></span> NO KNOWN ISSUE: enough aircraft, below threshold</div>
+    <div><span class="sw nki"></span> NO KNOWN ISSUE: enough aircraft below threshold, or a normal drone report in the last hour</div>
+    <div>Drone reports marked SIMULATED are demo data.</div>
     <div class="never">This map never shows safe. Undrawn cells have no sensor data: they are UNKNOWN.</div>
   </div>
   <h2>Agent log (last 20)</h2>
@@ -120,8 +121,9 @@ function popup(c) {
   const d = el('div');
   d.append(el('b', null, `${LABEL[c.state]} · ${c.cell_id}`), el('br'));
   if (c.n_total != null) d.append(`${c.n_degraded}/${c.n_total} sensor aircraft degraded (ratio ${Number(c.ratio).toFixed(2)})`, el('br'));
-  else d.append('no fresh observation (older than 15 min)', el('br'));
+  else d.append('no fresh aircraft observation (older than 15 min)', el('br'));
   if (c.incident_id) d.append(`incident #${c.incident_id} (${c.severity}): ${c.evidence}`, el('br'));
+  if (c.drone_evidence) d.append(`drone report ${utc(c.drone_ts)}: ${c.drone_evidence}`, el('br'));
   d.append(`last check: ${utc(c.ts)}`);
   return d;
 }

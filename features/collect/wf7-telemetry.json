@@ -1,0 +1,347 @@
+{
+  "name": "AirGuard WF7 Telemetry",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "airguard-drone",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "aa303725-bcfa-466a-a759-b7e048748184",
+      "name": "Drone report",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "d56d8345-4d31-42ad-bf16-9ffeb1dcdde7",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "AirGuard Drone Intake"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a4391dcc-c189-4b29-ba1c-54ba3a9b1293",
+              "name": "report_counts_minutes",
+              "value": 60,
+              "type": "number"
+            },
+            {
+              "id": "750774bf-111b-420b-a920-e2c51e1ffc5b",
+              "name": "simulated_prefix",
+              "value": "sim:",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b81767ed-a013-411b-ae3c-ee5a6a467789",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Owner: Krish (see CLAUDE.md)\n// Pure function, pasted into the WF7 Code node \"droneReport\". Contract C12.\n// Turns one drone's GNSS health report into one drone_reports row per leg of its planned route.\n// A sample is placed on the leg whose time window holds it, NEVER on the drone's own GPS position:\n// a spoofed drone reports the wrong place, which is exactly the case AirGuard has to catch.\n\nconst MIN_SAMPLES = 10;            // fewer on a leg: no verdict, the cell stays UNKNOWN\nconst JAM_RATIO = 0.3;             // same threshold as the aircraft sensor (baselines default)\nconst SPOOF_RATIO = 0.2;\nconst MAX_H_ACC_MM = 10000;        // MAVLink GPS_RAW_INT h_acc is in mm: worse than 10 m counts as degraded\nconst MAX_SAMPLES = 20000, MAX_LEGS = 20;\nconst MAX_AGE_MS = 24 * 3600e3, MAX_AHEAD_MS = 5 * 60e3;\nconst ID_RE = /^[A-Za-z0-9-]{1,32}$/;\nconst CELL_RE = /^-?\\d+\\.\\d_-?\\d+\\.\\d$/;\nconst SOURCE_RE = /^[a-z0-9:-]{1,40}$/;\n\n// fix_type (GPS_FIX_TYPE): < 3 = no 3D fix. jamming_state / spoofing_state as in PX4 SensorGps:\n// jamming 0 unknown, 1 ok, 2 warning, 3 critical · spoofing 0 unknown, 1 none, 2 indicated, 3 multiple.\nconst degraded = (s) => s.fix_type < 3 || (s.h_acc ?? 0) > MAX_H_ACC_MM || s.jamming_state >= 2;\nconst spoofed = (s) => s.spoofing_state >= 2;\nconst utc = (ms) => new Date(ms).toISOString();\n\n// droneReport(body = C12 report, now ms) -> { ok, rows: [drone_reports row], log: agent_log row }\nfunction droneReport(body, now = Date.now()) {\n  const refuse = (why) => ({ ok: false, rows: [],\n    log: { workflow: 'WF7', action: 'REJECT DRONE REPORT', reason: `drone report refused: ${why}`, outcome: 'nothing stored' } });\n  const b = body && typeof body === 'object' ? body : {};\n  if (!SOURCE_RE.test(b.source ?? '')) return refuse('source missing or not a short lowercase label');\n  if (!ID_RE.test(b.drone_id ?? '')) return refuse('drone_id missing or not letters, digits and \"-\"');\n  if (!ID_RE.test(b.sortie_id ?? '')) return refuse('sortie_id missing or not letters, digits and \"-\"');\n  const legs = Array.isArray(b.legs) ? b.legs : [];\n  const samples = Array.isArray(b.samples) ? b.samples : [];\n  if (legs.length < 1 || legs.length > MAX_LEGS) return refuse(`needs 1 to ${MAX_LEGS} legs`);\n  if (samples.length < 1 || samples.length > MAX_SAMPLES) return refuse(`needs 1 to ${MAX_SAMPLES} samples`);\n  const spans = [];\n  for (const l of legs) {\n    const from = Date.parse(l?.from), to = Date.parse(l?.to);\n    if (!CELL_RE.test(l?.cell_id ?? '')) return refuse('a leg has no valid cell_id (C1)');\n    if (!(from < to)) return refuse(`leg ${l.cell_id} needs from < to (UTC ISO 8601)`);\n    spans.push({ cell_id: l.cell_id, from, to, list: [] });\n  }\n  for (const s of samples) {\n    const t = Date.parse(s?.t);\n    if (!(now - t <= MAX_AGE_MS && t - now <= MAX_AHEAD_MS)) return refuse('a sample time is missing, older than 24 h or in the future');\n    if (!Number.isInteger(s.fix_type)) return refuse('a sample has no fix_type');\n    const leg = spans.find((l) => l.from <= t && t <= l.to);\n    if (leg) leg.list.push({ ...s, t });\n  }\n\n  const tag = b.source.startsWith('sim:') ? 'SIMULATED ' : '';\n  const rows = [], thin = [];\n  for (const l of spans) {\n    const n = l.list.length;\n    if (n < MIN_SAMPLES) { thin.push(l.cell_id); continue; }\n    const nd = l.list.filter(degraded).length, ns = l.list.filter(spoofed).length;\n    const noFix = l.list.filter((s) => s.fix_type < 3).length;\n    const jam = Math.max(...l.list.map((s) => s.jamming_state ?? 0));\n    const verdict = ns / n >= SPOOF_RATIO ? 'SPOOF' : nd / n >= JAM_RATIO ? 'JAMMED' : 'NORMAL';\n    const flags = [\n      noFix ? `no 3D fix on ${noFix}` : '',\n      jam >= 2 ? `receiver jamming flag ${jam === 3 ? 'CRITICAL' : 'WARNING'}` : '',\n      ns ? `receiver spoofing flag on ${ns}/${n}` : '',\n    ].filter(Boolean);\n    rows.push({\n      ts: utc(Math.max(...l.list.map((s) => s.t))), cell_id: l.cell_id, sortie_id: b.sortie_id, drone_id: b.drone_id,\n      n_samples: n, n_degraded: nd, n_spoof: ns, verdict, source: b.source,\n      evidence: `${tag}drone ${b.drone_id} on ${b.sortie_id}: ${nd}/${n} GNSS samples degraded`\n        + (flags.length ? `, ${flags.join(', ')}` : ', no jamming or spoofing flag'),\n    });\n  }\n  if (!rows.length) return refuse(`no leg has ${MIN_SAMPLES}+ samples inside its time window`);\n  return { ok: true, rows, log: {\n    workflow: 'WF7', action: `INGEST DRONE REPORT ${b.sortie_id}`,\n    reason: `${tag}${b.source} from ${b.drone_id}: `\n      + rows.map((r) => `${r.cell_id} ${r.verdict} ${r.n_degraded}/${r.n_samples} degraded`).join('; ')\n      + (thin.length ? `; under ${MIN_SAMPLES} samples, no verdict: ${thin.join(', ')}` : ''),\n    outcome: `${rows.length} cell report(s) stored; WF2 weighs them at the next 5-min cycle`,\n  } };\n}\n\nif (typeof module !== 'undefined') module.exports = { droneReport };\n// n8n glue (Code node, \"Run once for all items\"):\n// return [{ json: droneReport($('Drone report').first().json.body) }];\nreturn [{ json: droneReport($('Drone report').first().json.body) }];\n"
+      },
+      "id": "cb327af0-8826-419c-8b3a-b9dc0b2d473a",
+      "name": "droneReport",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4208c670-6c10-4f84-8b6e-43b76b1acf3d",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6b580846-8908-4b02-b333-c4861c8fb925",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.first().json.rows.map((json) => ({ json }));\n"
+      },
+      "id": "1b101420-ac20-4feb-9135-e56fb951326a",
+      "name": "Report rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "drone_reports"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "d21f608e-604e-4261-9485-923c72888f9e",
+      "name": "Insert drone_reports",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1100,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $('droneReport').first().json.log }];\n"
+      },
+      "id": "7e8b99e7-37f5-4e03-9345-33788fe61271",
+      "name": "Ingest line",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        200
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "403fe9db-6757-4344-b6df-ace61ea2d8a8",
+      "name": "Log ingest",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1540,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $json.log }];\n"
+      },
+      "id": "fa3b6608-9813-4f2f-aed2-41074e4aed54",
+      "name": "Reject line",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "agent_log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "1d230b81-2c71-44af-9962-b57226c3f971",
+      "name": "Log reject",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1100,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "name": "AirGuard Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Drone report": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "droneReport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "droneReport": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Report rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject line",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report rows": {
+      "main": [
+        [
+          {
+            "node": "Insert drone_reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert drone_reports": {
+      "main": [
+        [
+          {
+            "node": "Ingest line",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ingest line": {
+      "main": [
+        [
+          {
+            "node": "Log ingest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject line": {
+      "main": [
+        [
+          {
+            "node": "Log reject",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

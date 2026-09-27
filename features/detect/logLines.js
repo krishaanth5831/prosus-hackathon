@@ -15,7 +15,7 @@ function logLines(opened, mayLift, closed) {
     ...rows(mayLift).map((i) => ({
       workflow: 'WF2',
       action: `MAY-LIFT ${i.type} ${i.cell_id}`,
-      reason: `${i.type} ${i.cell_id} quiet 30 min with coverage (5+ checks with 3+ aircraft, none over threshold)`,
+      reason: `${i.type} ${i.cell_id} quiet 30 min with coverage (5+ checks with 3+ aircraft or a normal drone report, none over threshold)`,
       outcome: `incident #${i.id} may_lift, officer notified; every HOLD stays until a human lifts it`,
     })),
     ...rows(closed).map((i) => ({
