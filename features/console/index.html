@@ -232,11 +232,7 @@
   .tgb.me .bub { background: #33291a; border-color: #7a5a2c; border-radius: 14px 14px 4px 14px; }
   .tgb.me .who { color: var(--amber); }
   .tgb .quote { border-left: 2px solid var(--amber); padding-left: 8px; color: var(--muted); font-size: 12.5px; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
-  /* toasts */
-  #toasts { position: fixed; right: 16px; top: 62px; z-index: 2000; display: grid; gap: 8px; width: min(390px, calc(100% - 32px)); pointer-events: none; }
-  .toast { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--cyan); border-radius: 6px; padding: 9px 12px; font: 700 13px var(--mono); box-shadow: 0 10px 30px rgba(0,0,0,.4); animation: tin .3s ease; }
-  .toast.officer { border-left-color: var(--amber); } .toast.drone { border-left-color: var(--violet); } .toast.bad { border-left-color: var(--amber); }
-  .toast p { margin: 3px 0 0; color: var(--muted); font-family: 'IBM Plex Sans', sans-serif; font-weight: 600; }
+  .ticker .a.k-drone { color: var(--violet); } .ticker .a.k-officer, .ticker .a.k-bad { color: var(--amber); }
   @keyframes tin { from { opacity: 0; transform: translateY(-6px); } }
   @media (max-width: 1080px) { .hstat .opt { display: none; } }
   @media (max-width: 760px) {
@@ -332,7 +328,6 @@
     </section>
   </main>
 </div>
-<div id="toasts" aria-live="polite"></div>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs><pattern id="hatch" width="6" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
     <rect width="1.3" height="8" fill="#858f9b" fill-opacity=".5"/></pattern></defs>

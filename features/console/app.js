@@ -42,14 +42,12 @@
   const jamName = (j) => ['UNKNOWN', 'OK', 'WARNING', 'CRITICAL'][j] || String(j);
   const spoofName = (s) => ['UNKNOWN', 'NONE', 'INDICATED', 'MULTIPLE'][s] || String(s);
 
+  // no popups: a notice goes to the ticker at the bottom of the map, where it hides nothing (the drawer's telemetry,
+  // the chips, the map); the agent log, the Telegram view and the map show the rest.
   function toast(kind, title, text) {
-    const el = document.createElement('div');
-    el.className = `toast ${kind}`;
-    el.innerHTML = `<b>${esc(title)}</b>${text ? `<p>${esc(text)}</p>` : ''}`;
-    const box = $('#toasts');
-    box.prepend(el);
-    while (box.children.length > 4) box.lastChild.remove();
-    setTimeout(() => el.remove(), 9000);
+    const el = $('#ticker');
+    el.innerHTML = `<span class="t">${HMS.format(new Date())}</span><span class="a k-${esc(kind)}">${esc(title)}</span>${text ? `<span class="r">${esc(text)}</span>` : ''}`;
+    el.animate([{ opacity: 0.35 }, { opacity: 1 }], 400);
   }
   let bannerEl = null;
   function banner(text) {
