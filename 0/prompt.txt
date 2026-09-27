@@ -1,0 +1,258 @@
+<pasted_content id="aaa9">
+You are deploying Person C's AirGuard map (slice C5) to Vercel. It is one static file, with no build step.
+
+1. Get the code:
+   - If PRs #8, #9, #10, #11, #14, #15 and #16 are merged: `git switch dev && git pull`.
+   - Otherwise: `git fetch && git switch ShivamK12345/c7-story` (it contains everything from C1 to C7).
+   - Check that `features/map/index.html` and `features/map/vercel.json` exist.
+
+2. Write the runtime config from .env. The Supabase URL and anon key must NEVER be committed:
+   set -a; . ./.env; set +a
+   printf 'window.AIRGUARD = { url: "%s", key: "%s" };\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > features/map/config.js
+   Then run `git status` and confirm config.js shows as untracked. Do not `git add` it.
+
+3. Deploy only the map folder, as its own Vercel project named `airguard-map`:
+   cd features/map && npx vercel --prod --yes --name airguard-map; cd ../..
+   (Log in with `npx vercel login` first if needed. If `--name` is rejected, answer the prompts: new project, name `airguard-map`, root `./`, no build command, no output directory.)
+
+4. Delete the config right away, whether or not the deploy worked:
+   rm features/map/config.js
+
+5. Verify the production URL:
+   - `curl -s <URL>/config.js` returns the window.AIRGUARD line. It is meant to be public: the anon key is select-only through RLS.
+   - Open `<URL>` in a browser. You should see grey hatched and outlined cells over the Baltic, "0 JAMMED …" counts, and the agent log panel filled with real WF1/WF4 lines.
+   - Open `<URL>/?fixture=1`. You should see the "FIXTURE MODE" banner and 2 red cells near Kaliningrad plus 1 purple cell in the Gulf of Finland.
+   - Check there is no green anywhere on the page.
+   - `npm test` stays green, and `git status` shows no config.js.
+
+6. Two small hot-file changes Person C asked for. You own these files, so put them in one PR into dev:
+   - `.gitignore`: add `features/map/config.js`, as a second guard against committing the key.
+   - `.gitattributes` (new): `*.sh text eol=lf`. With autocrlf on, a Windows checkout of `features/detect/fixtures/run-fixtures.sh` otherwise breaks under bash.
+
+7. Reply with the production URL and a phone-width screenshot of the live map. Person C (ShivamK12345) will add the URL to the README, docs/TASKS.md and docs/evidence.md.
+</pasted_content id="aaa9">
+
+---
+
+<task-notification>
+<task-id>b3m951xkq</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-krishaanth-Desktop-personal-projects-github-prosus-hackathon/326c1420-bcbd-405e-81de-4997bcc868d9/tasks/b3m951xkq.output</output-file>
+<status>completed</status>
+<summary>Background command "Start Vercel device login and wait for approval" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<pasted_content id="aaa9">
+You are integrating AirGuard in prosus-hackathon. Read CLAUDE.md, README.md, shared/contracts/CONTRACTS.md, docs/plan.md §6–§7 and docs/TASKS.md. Check `gh pr list --base dev` for anything still open.
+1. Make sure every A/B/C PR is merged into dev (tell me which ones still need a skim). `git switch dev && git pull`. Then run npm test and features/detect/fixtures/run-fixtures.sh.
+2. n8n wiring (via the API if available, otherwise give me click-by-click steps):
+   - WF1 "Execute WF2": enable it and point it at WF2.
+   - WF2 "Execute WF3": enable it and point it at WF3.
+   - Error Workflow of WF1/2/3/5/6 = WF4.
+   - Activate everything.
+   Re-export the changed workflows into their feature folders on a branch `krish/integration`, then open a PR into dev.
+3. Live check over 2 cycles: observations → WF2 → WF3 executions with no errors. Show me cell_status counts by state and the last 10 agent_log lines.
+4. When the observations meet the 60% coverage rule: `node features/gate/gen-sorties.js`, then tell me to import features/gate/sorties.demo.csv into the sheet (replacing any T- rows).
+5. Run a forced failover (actor with forceFallback:true) and confirm the log line. Open the map URL and confirm it's live.
+6. Once all of that works: open a PR from dev → main for me to approve. After the merge, `git switch main && git pull && git tag demo-v1 && git push --tags`. Report what runs unattended, what's still manual, and the exact SQL to pull the evidence.
+</pasted_content id="aaa9">
+
+---
+
+<task-notification>
+<task-id>b49af32dl</task-id>
+<summary>Monitor event: "n8n executions after wiring (2 cycles of WF1→WF2→WF3; errors flagged)"</summary>
+<event>exec 95 WF1 success (webhook) 2026-09-26T21:40:20.624Z
+exec 96 WF2 success (integrated) 2026-09-26T21:40:23.712Z
+exec 97 WF3 success (integrated) 2026-09-26T21:40:23.923Z
+exec 98 WF4 success (trigger) 2026-09-26T21:40:30.090Z</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b49af32dl</task-id>
+<tool-use-id>toolu_01Kq2Vy9hoRMZL9WiUjMyc7M</tool-use-id>
+<output-file>/tmp/claude-1000/-home-krishaanth-Desktop-personal-projects-github-prosus-hackathon/326c1420-bcbd-405e-81de-4997bcc868d9/tasks/b49af32dl.output</output-file>
+<status>completed</status>
+<summary>Monitor "n8n executions after wiring (2 cycles of WF1→WF2→WF3; errors flagged)" stream ended</summary>
+<event>exec 99 WF1 success (webhook) 2026-09-26T21:45:22.657Z
+exec 100 WF2 success (integrated) 2026-09-26T21:45:25.740Z
+exec 101 WF3 success (integrated) 2026-09-26T21:45:25.945Z
+exec 102 WF4 success (trigger) 2026-09-26T21:45:30.104Z
+DONE: 2 cycles reached WF3 successfully</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+give me a prompt to fix person c's two telegram nodes. ill send to person c and he will paste this in his claude. also give me instructions on how person c should fill in his workflow ids and ill convey that to him. fix the wf1 webhook gap.
+
+---
+
+i try opening it on https://airguard-cc51uux2k-krishaanth-ramaraj.vercel.app/ this link but it doesnt open anything
+
+---
+
+make sure that dev and main branch are up to date because i think that both these branches are not alligned with each other
+
+---
+
+it still is the same thing and also why is dev the default branch main should be the default branch, all work in progress stuff should be in dev and all the final final working code should be in main thats how it should work and pr should always be from dev into main never the other way round
+
+---
+
+fix everything because the vercel link still doesnt work
+
+---
+
+continue
+
+---
+
+its done
+
+---
+
+<task-notification>
+<task-id>b2l9swoie</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-krishaanth-Desktop-personal-projects-github-prosus-hackathon/326c1420-bcbd-405e-81de-4997bcc868d9/tasks/b2l9swoie.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for PR 34 merge and the sync-dev Action result" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+now i want you to deploy the most recent one on vercel
+
+---
+
+connect the github
+
+---
+
+now there is no more data on the google sheets, I want you to add a bunch of fake sortie information on the google sheets and run a full demo for me, tell me what should be the expected outcome and I will tell you what is the actual outcome that comes out.
+
+---
+
+<pasted_content id="aaa9">
+## Addressing the aircraft-coverage deadspots
+
+That’s a real limitation: if no aircraft provide readings over a cell, AirGuard should show **UNKNOWN**, not infer that conditions are fine from nearby cells. ADS-B is useful broad-area evidence, but it is not a substitute for local measurements where the drones operate.
+
+A practical additional source is **telemetry from the unit’s own drones**. With operator authorization, ingest the flight controller’s GNSS health data and event logs—for example, fix status, reported accuracy, satellite count, GPS glitches, and discrepancies between independent navigation sources when available. MAVLink defines standard GPS telemetry messages, though the exact fields available depend on the aircraft and autopilot ([MAVLink common messages](https://mavlink.io/en/messages/common.html)).
+
+**Caution:** if GNSS is being spoofed, the drone’s reported position may itself be wrong. Don’t treat that coordinate alone as proof of which cell was affected. Pair the telemetry with independent position evidence where available, or with **fixed GNSS monitoring receivers** near the operating area. Such local receivers can observe signal degradation even when aircraft aren’t overhead; ESA’s GIDAS project describes continuous monitoring and says that multiple stations can support interference localization ([ESA NAVISP: GIDAS](https://navisp.esa.int/project/008-gidas-gnss-interference-analysis-system)).
+
+As a supplementary, broader signal, EASA publishes recently affected flight-information regions—but that is **regional context**, not a real-time, cell-level sensor feed ([EASA GNSS interference information](https://www.easa.europa.eu/en/domains/air-operations/global-navigation-satellite-system-outages-and-alterations)). A SESAR monitoring solution describes real-time area/route status and API/SWIM access, but it is listed as ongoing and has no public datapack, so don’t present it as a ready-to-connect free feed ([SESAR GNSS monitoring](https://www.sesarju.eu/sesar-solutions/real-time-gnss-monitoring-and-interference)).
+
+Use this information to come up with a prompt to work on using actual exisiting telemetry data from drones in border patrol zones or deadspots where you couldnt receive data from the current ads-b or its alternative, to have more well rounded information on jamming, spoofing, unknown, no known issue zones. and also reoragnize the google sheets if neccesary and all those sort of things. but before that first tell me if this is possible to do. 
+</pasted_content id="aaa9">
+
+---
+
+we can do it with fake data laeblled as border patrol-mavlink data. lets do that for now. and also scrap the person b or c idea from now on it will just be me working so dont split
+  the work until i ask you to. and then come up with the prompt and implement it
+
+---
+
+we can do it with fake data laeblled as border patrol-mavlink data. lets do that for now. and also scrap the person b or c idea from now on it will just be me working so dont split
+  the work until i ask you to. and then come up with the prompt and implement it
+
+---
+
+after you are done run a demo with fake sortie data and also fake mavlink border patrol data and show me that it works
+
+---
+
+<task-notification>
+<task-id>b26qr9v83</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-krishaanth-Desktop-personal-projects-github-prosus-hackathon/326c1420-bcbd-405e-81de-4997bcc868d9/tasks/b26qr9v83.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for WF2 cycle and check incidents and states" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bl6gnfw5v</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-krishaanth-Desktop-personal-projects-github-prosus-hackathon/326c1420-bcbd-405e-81de-4997bcc868d9/tasks/bl6gnfw5v.output</output-file>
+<status>completed</status>
+<summary>Background command "Run the demo loader before the next cycle" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+now its in dev pr it to main and also from now on dont make new branches for new features just work on dev and pr from dev to main when it is working. unless i tell you other wise.
+
+---
+
+go through the repo and give me an overview of what is going on with airguard. what does it do. What are its features. and give me a scenario on what airguard will do in a real life situation where there are a bunch of sorties plannend. and how the airguard gets its data and all those sort of things. but dont ramble too much keep it to the point quickly too
+
+---
+
+I want to build a ui around this so how would i do it in a way that it is aesthetically pleasing for the judges, looks high tech, works well with all the integrations that we have like apify, telegram, n8n all those sort of things. and also shows as much data as possible on the screen without out it being crowded and being minimalist. with good animations, visual details and things like that. also being user friendly.
+
+---
+
+just build a quick little like html page just for the visual aspect i want to see it and make multiple versions so i can choose out of those. with different like approaches to the ui. give me 5 different versions with different approaches. i also dont want it to just be one static page that is wayy too much information in one page. try to organize it well. also i want to see like live drone data like there are multiple drones each doing its own sortie but i can like click a drone and see in real time all the telemetry data, its decisions that its making, what are the decisions that the agent made all those sort of things. but for now just i want to see the visual aspect of it
+
+---
+
+open the artifact again
+
+---
+
+effort max
+
+---
+
+I like the ops console its really good now just actually make it and code it and integrate with all the things that are in play. like telegram, supabase, the google sheets, n8n, apify and the rest. and make sure all the data actualy updates in real time. and also for time i think you are using UTC but I want you to use CEST.
+
+---
+
+once done open a localhost where I can view it and play with it
+
+---
+
+<task-notification>
+<task-id>b85bunusv</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-krishaanth-Desktop-personal-projects-github-prosus-hackathon/326c1420-bcbd-405e-81de-4997bcc868d9/tasks/b85bunusv.output</output-file>
+<status>failed</status>
+<summary>Background command "Start the console server in the background" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+I dont want this sort of map the like exact map from the artifact you made me with the pro console one where it is just the map of that little region is what i want. like as in i dont want to be able to zoom out only zoom in so just the like region where you showed on the artifact is good enough and is all i ask for.
+
+---
+
+<task-notification>
+<task-id>blad1g3or</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-krishaanth-Desktop-personal-projects-github-prosus-hackathon/326c1420-bcbd-405e-81de-4997bcc868d9/tasks/blad1g3or.output</output-file>
+<status>failed</status>
+<summary>Background command "Start the updated console server in the background" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bks5oypqt</task-id>
+<tool-use-id>toolu_01PHDwWvuuhxHY8S8bUDHmb7</tool-use-id>
+<output-file>/tmp/claude-1000/-home-krishaanth-Desktop-personal-projects-github-prosus-hackathon/326c1420-bcbd-405e-81de-4997bcc868d9/tasks/bks5oypqt.output</output-file>
+<status>failed</status>
+<summary>Background command "Start the updated console server in the background" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+There are a few things I want you to fix with the ui right now, keep the same color scheme but make it slightly brighter, and make the text bold and just a tad bigger. Next I want you to add an option to play it in real time, 10x, 20x speed, but in the same place where it says drones simulated 10x speed. Also reset the dev server and restart it. Whenever I click a drone on the map I want you to show its planned path, how much it flew already from that path. so maybe like make the planned path like a dotted neon green line and the path it flew make it a solid cyan blue line. once done pr to main and start a dev server so i can see what is happening.
