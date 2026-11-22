@@ -1,4 +1,6 @@
-# prosus-hackathon
+# AirGuard
+
+_Repo: `prosus-hackathon`._
 
 **AirGuard: an autonomous pre-launch sortie guard that uses aircraft overhead as GPS-jamming sensors and reroutes, reschedules, cancels or holds drone sorties before they launch into jammed airspace. It never says "safe".**
 
@@ -6,6 +8,18 @@ Apify (collection) → n8n Cloud (all logic) → Supabase Postgres → Google Sh
 What and why: `docs/prd.md` · how: `docs/plan.md` · contracts: `shared/contracts/CONTRACTS.md` · slices: `docs/TASKS.md` · rules for Claude Code: `CLAUDE.md`.
 
 **Live map:** https://airguard-map.vercel.app (`?fixture=1` for the contract fixtures) · **Evidence:** [`docs/evidence.md`](docs/evidence.md) · **Video script:** [`docs/video-script.md`](docs/video-script.md)
+
+## Status
+
+Built in one weekend in Amsterdam for **Build Weekend 26 (Young Creators × Prosus)**; the demo video was due on 2026-09-27. Everything described below ran as a hosted, unattended pipeline on the team's own Apify, n8n Cloud, Supabase, Telegram and Google accounts during the hackathon. This repo holds the code and the n8n workflow exports, not those accounts: to run the full pipeline yourself you need your own of each (see [Setup](#setup)). The map page was still online on 2026-11-22; whether the pipeline behind it is still running was not checked.
+
+What runs with no accounts at all:
+
+```bash
+npm test                                   # Node >= 20, zero dependencies, 122 tests
+python3 -m http.server 8000                # from the repo root, then open:
+# http://localhost:8000/features/map/index.html?fixture=1   (the map on the contract fixtures)
+```
 
 ## AirGuard in one minute (for judges)
 
@@ -103,6 +117,23 @@ The agent **acts** on sorties launching within 2 h and **watches** sorties launc
 6. Map: see [`docs/n8n-import.md`](docs/n8n-import.md#map-vercel). `?fixture=1` works without any backend.
 7. Tests: `npm test` (Node ≥ 20, zero dependencies). Detection SQL: `bash features/detect/fixtures/run-fixtures.sh`.
 
+### Layout
+
+```
+features/
+  collect/   Person A  Apify actor (actor/), cell binning, WF1 Collect, WF4 Heal, WF7 drone telemetry, simulated drone
+  detect/    Person C  detection SQL (sql/), SQL fixtures, WF2 Detect, WF5 Report
+  gate/      Person B  the sortie gate (decide.js), Telegram actions and answers, WF3 Gate, WF6 Respond, demo sorties
+  map/       Person C  the Leaflet map (one static index.html) deployed on Vercel
+  console/             ops console (npm run console): server, simulated fleet, demo plan, WF8
+db/migrations/         Supabase schema, 001-004, applied in order
+shared/contracts/      CONTRACTS.md (binding shapes and names) + sample fixtures and their tests
+docs/                  prd, plan, research, tasks, decisions, n8n import, evidence, video script, drone telemetry
+.github/               CODEOWNERS, PR template, test workflow, sync-dev workflow
+```
+
+Each `features/*/evidence/` folder holds the proof captured from the hosted run. The `wf*.json` files are n8n exports with credential ids removed.
+
 ### Evidence
 
 Everything below was captured from the unattended hosted run. The shot list and the exact query behind each shot are in [`docs/evidence.md`](docs/evidence.md).
@@ -125,7 +156,7 @@ cp .env.example .env     # ask Krish for the real values
 npm test                 # Node >= 20, zero dependencies
 ```
 
-Then: **claim a task on the board before you start it.** Nothing else in this README matters as much as that line.
+Then: **claim a slice in [`docs/TASKS.md`](docs/TASKS.md) before you start it**, and only edit files you own (see [Who owns what](#who-owns-what)).
 
 ---
 
@@ -183,99 +214,31 @@ things at hour 47, we present the tag.
 
 ---
 
-## Code structure: vertical slices
+## Who owns what
 
-Once we pick the idea, we organise **by feature, not by layer**:
+Work is organised by feature folder, and every folder has one owner. The binding version of this table is in [`CLAUDE.md`](CLAUDE.md), which also holds the rules every Claude Code session in this repo follows.
 
-```
-src/
-  features/
-    auth/          # UI + API calls + types for auth, all together
-    <feature>/
-    <feature>/
-  shared/          # only things genuinely used by 3+ features
-  lib/             # api client, db client, config
-```
-
-Why: layer-based folders (`components/`, `services/`, `utils/`) force all 5 of us into the
-same files all weekend. Feature folders mean a task **is** a folder — you live in
-`features/checkout/` for three hours and touch nothing anyone else is in. We get
-collision-free work without permanently assigning anyone an area.
-
-**Colocate aggressively.** Component, hook, styles, API call and types for a feature stay in
-its folder. Duplication between features is fine at hackathon scale — a premature `shared/`
-abstraction drags everyone back into the same files, which is the exact thing we're avoiding.
-
----
-
-## Hot files (where conflicts actually happen)
-
-Feature folders kill ~90% of conflicts. The rest land in these, so handle them deliberately:
-
-| File | Rule |
+| Who | Owns |
 |---|---|
-| Router / route registry | Keep it one line per feature. **Append at the end**, never edit the middle. |
-| DB schema / migrations | **Krish owns it.** Never edit a merged migration — add a new file. |
-| Shared types / API contract | **Krish owns it.** Every change gets announced out loud. |
-| `package.json` / lockfiles | Whoever adds a dep says so and merges within minutes. Don't hand-resolve a lockfile — take the base version and re-run install. |
-| App entry / env config | Touch it, announce it, merge it fast. |
+| Person A `krishaanth5831` | `features/collect/` |
+| Person B `Atharva-cloud-1` | `features/gate/` |
+| Person C `ShivamK12345` | `features/detect/`, `features/map/`, `README.md`, `docs/TASKS.md`, `docs/n8n-import.md`, `docs/video-script.md`, `docs/evidence.md` |
+| Krish only (hot files) | `CLAUDE.md`, `db/`, `shared/`, `package.json`, `.github/`, `.gitignore`, `.env.example`, `docs/prd.md`, `docs/plan.md`, `docs/research.md`, `docs/SETUP_PROMPT.md` |
+| Anyone | `docs/DECISIONS.md`: append one row at the end, never edit existing rows |
 
-Silent breakage comes from the type/schema files: git merges a renamed field perfectly
-cleanly and the app is broken at runtime. That's why they have one owner.
+If you need a change in a file you don't own, ask its owner. Never edit a merged migration: add a new file in `db/migrations/`. Contract changes (`shared/contracts/`) get announced to everyone, because git merges a renamed field cleanly and the pipeline then breaks at runtime.
 
----
-
-## Workflow
-
-**The board is the source of truth.** GitHub Projects / Notion / whiteboard — doesn't matter,
-as long as everyone can see it.
-
-- **Nothing is worked on until it's on the board with your name on it.** Two people silently
-  building the same thing costs more than any merge conflict.
-- **Tasks are 2-4 hours and vertical:** "checkout flow end to end with fake payment", not
-  "write the checkout service". Slice-shaped tasks map onto feature folders; layer-shaped ones don't.
-- **Say it in the room:** *"I'm in `features/map` and the router for the next two hours."*
-  One sentence prevents most collisions.
-- **Review is a 2-minute skim**, not a code review: does it run, does it delete anyone's work.
-  No PR sits longer than ~15 minutes — poke people out loud, don't wait on notifications.
-
-### Roles
-
-- **Integrator (Krish)** — owns `main`, shared types, schema, deploy, and the ugly conflicts.
-- **Demo owner** — from the halfway point, their job is the 3-minute presentation, not features.
-  Hackathons are won by the demo; teams that leave it to the last hour lose to worse code with a better story.
-- **Everyone else** — build. Pair up on the two hardest tracks; 5 people is rarely 5 real workstreams.
-
-### Cadence
-
-- **Sync every ~4 hours, 2 minutes, standing:** what's merged / what you're on / what's blocking you.
-- **Feature freeze ~4 hours before submission.** Bug fixes only after that.
-- **Practice the demo twice on the deployed URL**, not localhost.
-
----
-
-## Day 1 checklist
-
-Before anyone writes a feature:
-
-- [ ] Pick the idea, then run the prompt in `docs/SETUP_PROMPT.md` to generate the structure
-- [ ] Push a **skeleton that runs** — empty pages, `/health` returning 200, hardcoded fake data.
-      Everyone should clone something that already starts.
-- [ ] **Lock the API contract** — endpoints + request/response JSON, written down. Frontend builds
-      against mocks, backend fills them in, neither waits on the other.
-- [ ] Fill `.env.example` with every key anyone needs
-- [ ] Everyone runs the app locally and confirms it starts
-- [ ] Board created, first ~10 tasks sliced
-
-## Before the hackathon
-
-Install the stack and run a hello-world **this week**. Wrong runtime version, missing
-CUDA, an API key nobody has — environment setup routinely eats the first 3 hours of a
-hackathon and is entirely preventable now.
+Slices are 2-4 hours, vertical and demo-visible, one PR each into `dev`. Review is a quick skim: does it run, does it delete anyone's work.
 
 ---
 
 ## Docs
 
-- `docs/SETUP_PROMPT.md` — the one prompt to run once we pick the idea
-- `docs/DECISIONS.md` — one-liners: "we picked X over Y because Z"
+- `docs/prd.md`: what AirGuard is and why · `docs/plan.md`: how it is built · `docs/research.md`: background research
+- `shared/contracts/CONTRACTS.md`: shapes and names every part must follow (binding)
+- `docs/TASKS.md`: the slices, who owned each, and where they ended up
+- `docs/DECISIONS.md`: one-liners, "we picked X over Y because Z"
+- `docs/n8n-import.md`: importing the workflows and deploying the map
+- `docs/drone-telemetry.md`: the build prompt for the simulated drone GNSS telemetry slice (C12, WF7)
+- `docs/evidence.md`, `docs/video-script.md`: the shot list and the demo video script
+- `docs/SETUP_PROMPT.md`: the prompt used once to generate the repo structure
