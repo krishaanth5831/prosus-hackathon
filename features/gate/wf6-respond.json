@@ -505,7 +505,7 @@
         "operation": "executeQuery",
         "query": "insert into telegram_log (workflow, kind, message_id, text, buttons, who, ts)\nvalues ($1, $2, nullif($3, '')::bigint, $4, nullif($5, '')::jsonb, nullif($6, ''), coalesce(to_timestamp(nullif($7, '')::double precision), now()));",
         "options": {
-          "queryReplacement": "={{ (r => ['WF6', 'edit', String(r.message_id || ''), String(r.text || ''), '', '', String(r.edit_date || r.date || '')])($json.result || {}) }}"
+          "queryReplacement": "={{ (r => ['WF6', 'edit', String(r.message_id || ''), String(r.text || '').replace(/https?:\\/\\/\\S+/g, '[link]'), '', '', String(r.edit_date || r.date || '')])($json.result || {}) }}"
         }
       },
       "credentials": {

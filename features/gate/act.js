@@ -136,7 +136,7 @@ function act(d, s, now = new Date()) {
   if (d.level === 'UNVERIFIED') {
     return { ...a,
       text: [head('❔ UNVERIFIED'), esc(d.reason),
-        'Why you: too few aircraft and no recent drone report there to check GPS, so AirGuard cannot see jamming there, and it cannot say there is none.',
+        'Why: too few aircraft and no recent drone report there to check GPS, so AirGuard cannot see jamming there, and it cannot say there is none.',
         'Agent: nothing changed; the launch is your call.'].join('\n'),
       log: log('FLAG UNVERIFIED', `${d.reason}; launch in ${until(launch, now)}`, 'nothing changed, officer notified') };
   }

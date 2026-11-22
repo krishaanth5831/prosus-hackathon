@@ -137,7 +137,7 @@ test('WATCH logs once and changes nothing; UNVERIFIED notifies and changes nothi
   const u = act(row({ level: 'UNVERIFIED', incident_id: null, reason: 'no sensor coverage in 55.0_21.0' }), sortie(), NOW);
   assert.equal(u.sheet, null);
   assert.equal(u.text, `❔ UNVERIFIED · T-001 · ${UNIT} · launch 23:35\nno sensor coverage in 55.0_21.0\n`
-    + 'Why you: too few aircraft and no recent drone report there to check GPS, so AirGuard cannot see jamming there, and it cannot say there is none.\n'
+    + 'Why: too few aircraft and no recent drone report there to check GPS, so AirGuard cannot see jamming there, and it cannot say there is none.\n'
     + 'Agent: nothing changed; the launch is your call.');
   assert.deepEqual([u.log.action, u.log.reason], ['FLAG UNVERIFIED T-001', 'no sensor coverage in 55.0_21.0; launch in 30 min']);
 });
@@ -177,7 +177,8 @@ test('every text says why: "Why:" for what the agent did alone, "Why you:" for w
     [level, act(row({ level, new_launch_at: '2026-09-26T23:35:00.000Z', new_cells: '56.5_21.0' }), sortie({ cells: '54.5_20.5;56.5_21.0' }), NOW).text]);
   for (const [level, text] of texts) {
     const alone = ['L1_REROUTE', 'L1_RESCHEDULE', 'L2_CANCEL', 'L3_AUTO_HOLD'].includes(level);
-    assert.match(text.split('\n')[2], alone ? /^Why: .*the agent acted alone\.$/ : /^Why you: /, level);
+    const why = alone ? /^Why: .*the agent acted alone\.$/ : level === 'UNVERIFIED' ? /^Why: / : /^Why you: /;   // a notice, not a request
+    assert.match(text.split('\n')[2], why, level);
     assert.match(text, alone ? /FYI, no answer needed\./ : /your call/i, level);
   }
   const brake = batchCards([act(row({ level: 'BRAKE_HOLD', batch: '41' }), sortie(), NOW)])[0].text;

@@ -69,6 +69,17 @@ test('Telegram view: the group in order, a card answered by an edit loses its bu
   assert.deepEqual(open[0].buttons, [['Hold', 'Launch anyway', 'Cancel']], 'unanswered: the buttons are still there');
 });
 
+test('board: a test id reused by a later demo plan never shows the earlier sortie\'s decisions', () => {
+  const [again] = boardRows([row('T-305', { launch_at: '2026-09-27T10:08:00Z' })], [
+    { id: 7, ts: '2026-09-27T02:00:00Z', sortie_id: 'T-305', level: 'UNVERIFIED', old_launch_at: '2026-09-27T02:20:00+00:00', reason: 'the morning plan' },
+  ], SYNC);
+  assert.deepEqual([again.level, again.reason, again.decision], [null, '', null]);
+  const [moved] = boardRows([row('T-1', { launch_at: '2026-09-27T12:00:00Z', status: 'RESCHEDULED' })], [
+    { id: 8, ts: '2026-09-27T09:05:00Z', sortie_id: 'T-1', level: 'L1_RESCHEDULE', old_launch_at: '2026-09-27T10:00:00+00:00', new_launch_at: '2026-09-27T12:00:00+00:00', reason: 'moved' },
+  ], '2026-09-27T09:10:00Z');
+  assert.deepEqual([moved.level, moved.reason], ['L1_RESCHEDULE', 'moved'], 'after a reschedule the sheet holds the new launch');
+});
+
 test('board: columns and log kinds', () => {
   const now = Date.parse('2026-09-27T09:30:00Z');
   const [held, flying, moved, upcoming, past] = boardRows([row('T-1'), row('T-2', { launch_at: '2026-09-27T09:10:00Z' }), row('T-3'), row('T-4'),
@@ -129,38 +140,43 @@ test('map region: the eastern flank from the design; every demo sortie and every
   for (const [lon, lat] of [...GEO.COAST.flat(), ...GEO.BORDERS.flatMap(([line]) => line)]) assert.ok(inside(lat, lon), `${lat},${lon}`);
 });
 
-test('fleet: routes stay inside their planned cells, both ways along a line and round a box', () => {
-  const line = routeFor(['54.0_23.0', '54.0_23.5']), box = routeFor(['59.0_27.5']);
-  assert.deepEqual([line.loop, box.loop, routeFor(['nonsense']).points.length], [false, true, 0]);
-  for (let d = 0; d < 200e3; d += 1500) {
-    const p = positionAt(line, d);
-    assert.ok(['54.0_23.0', '54.0_23.5'].includes(cellId(p.lat, p.lon)), `line at ${d} m`);
-    assert.equal(cellId(positionAt(box, d).lat, positionAt(box, d).lon), '59.0_27.5', `box at ${d} m`);
+test('route: real patrol paths (loop, figure-eight, sweep, border track), closed, curving, and never outside the planned cells', () => {
+  const { AREAS } = require('./demoPlan.js');
+  const patterns = new Set();
+  for (const cells of [...AREAS.map((a) => a.cells), ...AREAS.map((a) => a.cells.slice(0, 1))]) {
+    const [la0, lo0] = cells[0].split('_').map(Number), [la1, lo1] = cells.at(-1).split('_').map(Number);
+    const pin = cells.length === 2 && Math.abs(la0 - la1) === 0.5 && Math.abs(lo0 - lo1) === 0.5 ? [Math.max(la0, la1), Math.max(lo0, lo1)] : null;
+    for (const seed of ['T-301', 'T-302', 'T-313', 'T-340']) {
+      const r = routeFor(cells, seed), { len } = positionAt(r, 0), turns = new Set();
+      patterns.add(r.pattern);
+      assert.ok(r.loop && r.points.length >= 20, `${cells} ${seed}: ${r.points.length} points`);
+      for (let d = 0; d < len; d += 600) {
+        const p = positionAt(r, d);
+        turns.add(Math.round(p.hdg / 15) % 24);
+        if (pin && Math.hypot(p.lat - pin[0], p.lon - pin[1]) < 0.003) continue;   // two cells that touch only at this corner
+        assert.ok(cells.includes(cellId(p.lat, p.lon)), `${cells} ${seed} at ${d} m is in ${cellId(p.lat, p.lon)}`);
+      }
+      assert.ok(turns.size >= 10, `${cells} ${seed}: not a line or a box (${turns.size} headings)`);
+    }
   }
-  const L = 0.5 * 111320 * Math.cos(54.25 * Math.PI / 180);     // the line from 54.25,23.25 to 54.25,23.75
-  const out = positionAt(line, 10e3), back = positionAt(line, 2 * L - 10e3);
-  assert.ok(Math.abs(out.lat - back.lat) < 1e-6 && Math.abs(out.lon - back.lon) < 1e-6, 'the way back passes the same points');
-  assert.equal((out.hdg + 180) % 360, back.hdg);
-  assert.deepEqual([out.pass, out.back, back.pass, back.back], [1, false, 2, true]);
-  const lap2 = positionAt(box, positionAt(box, 0).len + 5e3);
-  assert.deepEqual([lap2.pass, lap2.back, Math.round(lap2.along)], [2, false, 5000], 'the box: lap after lap, never back');
+  assert.deepEqual([...patterns].sort(), ['border track', 'figure-eight', 'patrol loop', 'search sweep']);
+  assert.deepEqual(routeFor(['54.0_23.0'], 'T-1'), routeFor(['54.0_23.0'], 'T-1'), 'a sortie always flies the same path');
+  assert.notDeepEqual(routeFor(['54.0_23.0'], 'T-1').points, routeFor(['54.0_23.0'], 'T-2').points, 'another sortie flies another');
+  assert.deepEqual(routeFor(['54.0_23.0', '54.0_23.0', 'x'], 'T-1'), routeFor(['54.0_23.0'], 'T-1'), 'a cell named twice is one cell');
+  assert.deepEqual(routeFor(['nonsense']).points, []);
 });
 
-test('route: the flown part is this pass so far, from where it began to the drone', () => {
-  const line = routeFor(['54.0_23.0', '54.0_23.5']), box = routeFor(['59.0_27.5']);
-  const L = positionAt(line, 0).len, [a, b] = line.points;
-  assert.deepEqual(flownPath(line, 0), [a, a]);
-  const out = flownPath(line, 10e3);
-  assert.deepEqual([out.length, out[0]], [2, a], 'out: from the first cell centre');
-  assert.ok(Math.abs(out[1][1] - (a[1] + (b[1] - a[1]) * 10e3 / L)) < 1e-9);
-  const back = flownPath(line, L + 4e3);
-  assert.deepEqual([back.length, back[0]], [2, b], 'back: from the far end, the old pass is not drawn');
-  const edge = positionAt(box, 0).len / 4;                    // the box's first side, its long east-west one, is not a quarter
-  const lap = flownPath(box, 1.5 * edge), [p0, p1] = box.points;
-  assert.deepEqual(lap.slice(0, 2), [p0, p1], 'a lap: the corners passed so far, then the drone');
-  assert.deepEqual(lap.at(-1), (({ lat, lon }) => [lat, lon])(positionAt(box, 1.5 * edge)));
-  assert.equal(flownPath(box, positionAt(box, 0).len + 1).length, 2, 'a new lap starts from the first corner again');
-  assert.deepEqual(routeFor(['54.0_23.0', '54.0_23.0', 'x']), routeFor(['54.0_23.0']), 'a cell named twice is one cell');
+test('route: laps, and the flown part is this lap so far, from its first point to the drone', () => {
+  const r = routeFor(['59.0_27.5', '59.0_27.0'], 'T-9'), { len } = positionAt(r, 0), p0 = r.points[0];
+  assert.deepEqual(flownPath(r, 0), [p0, p0]);
+  for (const d of [3e3, len / 3, len * 0.9]) {
+    const p = positionAt(r, d), f = flownPath(r, d);
+    assert.deepEqual(f.slice(0, -1), [...r.points, p0].slice(0, p.leg + 1), 'the path points passed so far');
+    assert.deepEqual(f.at(-1), [p.lat, p.lon], 'then the drone');
+    assert.deepEqual([p.lap, Math.round(p.along)], [1, Math.round(d)]);
+  }
+  const next = positionAt(r, len + 5e3);
+  assert.deepEqual([next.lap, Math.round(next.along), flownPath(r, len + 1).length], [2, 5000, 2], 'a new lap starts from the first point again');
 });
 
 test('fleet: only sorties the sheet and the gate let fly take off; HOLD and CANCELLED stay down', () => {
@@ -237,22 +253,53 @@ test('fleet: the speed switch (real time, 10x, 20x) keeps every drone where it i
   for (const bad of [5, '10', 0, null]) assert.throws(() => f.setSpeed(bad), /speed must be 1, 10, 20/);
   assert.equal(f.speed, 1);
   assert.match(f.tick(t0 + 7000).events.find((e) => e.action.startsWith('SIMULATION SPEED')).action, /^SIMULATION SPEED REAL TIME$/);
-  const where = positionAt(routeFor(['54.0_23.0', '54.0_23.5']), b.dist);
+  const where = positionAt(routeFor(['54.0_23.0', '54.0_23.5'], 'T-8'), b.dist);   // the fleet seeds a path with the sortie id
   assert.ok(Math.abs(where.lat - b.lat) < 1e-5 && Math.abs(where.lon - b.lon) < 1e-5, 'the map computes the same position from dist');
 });
 
-test('demo plan: 16 fictional C5 test sorties on the eastern-flank borders, 4 already launched', () => {
+test('fleet: a jammer that comes on mid-patrol is reported on its own samples, not averaged with the good ones before it', () => {
+  const sent = [];
+  const f = new Fleet({ post: (r) => { sent.push(r); return Promise.resolve(); }, rng: () => 0.3 });
+  const t0 = Date.parse('2026-09-27T10:00:00Z');
+  f.setSorties(boardRows([row('T-9', { launch_at: '2026-09-27T09:59:00Z', cells: '59.0_27.5' })], [], SYNC));
+  for (let i = 0; i < 100; i++) f.tick(t0 + i * 2000);           // 200 s of good GNSS in the cell
+  f.setEffect('59.0_27.5', 'jam');
+  for (let i = 100; i < 118; i++) f.tick(t0 + i * 2000);
+  const bad = sent.filter((r) => droneReport(r, t0 + 240e3).rows[0].verdict === 'JAMMED');
+  assert.equal(bad.length, 1, 'reported about 30 s after the jammer came on');
+  assert.ok(bad[0].samples.length <= 16, `${bad[0].samples.length} samples, all from the jammed spell`);
+});
+
+test('fleet: a test id reused by a newer plan with other cells is another flight', () => {
+  const f = new Fleet({ post: () => Promise.resolve(), rng: () => 0.3 });
+  const t0 = Date.parse('2026-09-27T10:00:00Z');
+  f.setSorties(boardRows([row('T-5', { launch_at: '2026-09-27T09:40:00Z', cells: '54.0_25.0' })], [], SYNC));
+  assert.equal(f.tick(t0).drones[0].cell, '54.0_25.0');
+  f.setSorties(boardRows([row('T-5', { launch_at: '2026-09-27T09:45:00Z', cells: '57.0_27.5' })], [], SYNC));
+  const snap = f.tick(t0 + 2000);
+  assert.deepEqual([snap.drones.length, snap.drones[0].cell], [1, '57.0_27.5'], 'it flies the new cells');
+  assert.ok(snap.events.some((e) => e.action.startsWith('LANDED') && e.detail === 'sortie T-5'));
+});
+
+test('demo plan: 60 fictional C5 test sorties on the eastern-flank borders, 10 in the air now, 50 over the next 11 h', () => {
   const now = new Date('2026-09-27T10:00:30Z'), rows = demoPlan(now);
-  assert.equal(rows.length, 16);
-  assert.deepEqual(rows.map((r) => r.sortie_id), Array.from({ length: 16 }, (_, i) => `T-${301 + i}`));
+  assert.equal(rows.length, 60);
+  assert.equal(consoleRequest({ op: 'load', rows }).ok, true, 'WF8 takes all 60 in one load');
+  assert.deepEqual(rows.map((r) => r.sortie_id), Array.from({ length: 60 }, (_, i) => `T-${301 + i}`));
   for (const r of rows) {
     assert.deepEqual(Object.keys(r), C5);
     assert.match(r.launch_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:00Z$/);
     assert.ok(Date.parse(r.window_end) > Date.parse(r.launch_at));
     assert.match(r.unit, /\(DEMO\)$/);
+    assert.ok(r.note.length > 10 && !/demo|fictional/i.test(r.note), `${r.sortie_id}: the note is the mission`);
     assert.equal(consoleRequest({ op: 'load', rows: [r] }).ok, true, `${r.sortie_id} passes WF8`);
   }
-  assert.equal(rows.filter((r) => Date.parse(r.launch_at) <= now.getTime()).length, 4);
+  assert.equal(rows.filter((r) => Date.parse(r.launch_at) <= now.getTime()).length, 10);
+  const up = airborne(boardRows(rows.map((r) => ({ ...r })), [], SYNC), now.getTime());
+  assert.equal(up.length, 10, 'ten drones fly at once');
+  assert.equal(new Set(up.map((s) => s.unit)).size, 10, 'each over its own stretch of border');
+  const later = rows.filter((r) => Date.parse(r.launch_at) > now.getTime()).map((r) => Date.parse(r.launch_at));
+  assert.ok(later.length === 50 && Math.max(...later) - now.getTime() < 11 * 3600e3, 'fifty launch within the next 11 h');
   assert.deepEqual([...new Set(rows.map((r) => r.priority))].sort(), ['low', 'priority', 'routine']);
 });
 
@@ -261,8 +308,9 @@ test('demo plan: one simulated jammer on Lazdijai 54.0_23.5 gives a reroute and 
   const now = new Date('2026-09-27T10:00:00Z'), rows = demoPlan(new Date(now.getTime() - 10 * 60e3));   // the jammer 10 min after loading
   const cells = { '54.0_23.5': { cell_id: '54.0_23.5', state: 'JAMMED', incident_id: 90, severity: 'medium', evidence: 'SIMULATED drone BG-UAV-05: 20/40 degraded' } };
   const out = decide({ sorties: rows, cells, now }).filter((a) => a.incident_id === 90);
-  assert.deepEqual(out.map((a) => [a.sortie_id, a.level, a.human, a.new_cells]), [
-    ['T-305', 'L1_REROUTE', false, '54.0_23.0'], ['T-306', 'L3_HOLD', true, undefined], ['T-307', 'L1_RESCHEDULE', false, undefined]]);
+  assert.deepEqual(out.filter((a) => a.level !== 'WATCH').map((a) => [a.sortie_id, a.level, a.human, a.new_cells]), [
+    ['T-312', 'L1_REROUTE', false, '54.0_23.0'], ['T-313', 'L3_HOLD', true, undefined], ['T-314', 'L1_RESCHEDULE', false, undefined]]);
+  assert.deepEqual(out.filter((a) => a.level === 'WATCH').map((a) => a.sortie_id), ['T-342', 'T-358'], 'later ones are only watched');
   const fly = airborne(boardRows(rows.map((r) => ({ ...r })), [], SYNC), now.getTime()).map((s) => [s.sortie_id, s.cells]);
   assert.ok(fly.some(([id, c]) => id === 'T-301' && c.includes('54.0_23.5')), 'a drone is up over the jammed cell to feel it');
 });
@@ -285,6 +333,8 @@ test('C14 telegram_log: the n8n parameters for a card, a text, an edit, a tap an
   assert.deepEqual(refused, ['WF6', 'tap', '51', 'a button', '', 'not on the allowlist', '']);
   for (const p of [run(sentParams('WF3'), card), refused]) assert.doesNotMatch(JSON.stringify(p), /100123|Mallory|999|\|T-306/, 'no chat id, user id, name or callback data');
   assert.deepEqual([...TG_SQL.matchAll(/\$(\d)/g)].map((m) => m[1]), ['1', '2', '3', '4', '5', '6', '7']);
+  const alert = run(sentParams('WF4'), { ok: true, result: { message_id: 8, date: 2, text: '⚠️ AirGuard: WF1 failed\nhttps://example.app.n8n.cloud/workflow/x/executions/9' } });
+  assert.equal(alert[3], '⚠️ AirGuard: WF1 failed\n[link]', 'no link reaches the anon-readable log');
 });
 
 test('C14: every Telegram message any workflow sends goes to its "Telegram log" node right away', () => {

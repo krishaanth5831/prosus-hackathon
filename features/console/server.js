@@ -113,7 +113,7 @@ function main() {
     try {
       const since = new Date(Date.now() - 48 * 3600e3).toISOString();
       const [sorties, decisions, sync] = await Promise.all([sbGet('sorties?select=*'),
-        sbGet(`decisions?select=id,ts,sortie_id,level,new_launch_at,new_cells,human_answer,decided_by,reason&ts=gte.${since}&order=id.desc&limit=1000`),
+        sbGet(`decisions?select=id,ts,sortie_id,level,old_launch_at,new_launch_at,new_cells,human_answer,decided_by,reason&ts=gte.${since}&order=id.desc&limit=1000`),
         sbGet('sheet_sync?select=synced_at')]);
       fleet.setSorties(boardRows(sorties, decisions, sync[0] && sync[0].synced_at));
       if (fleet.mirrorReal) fleet.setRealBad(await sbGet('cell_status?select=cell_id,state&state=in.(JAMMED,SPOOF)'));
